@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anthropic Chat Lab</title>
+  <!-- Declared so the browser stops requesting /favicon.ico and
+       logging a 404 on every load. See public/favicon.svg. -->
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/styles.css">
+  <!--
+    index.html — the whole user interface.
+
+    The appearance all lives in styles.css. This file is structure only, and
+    every later step attaches to an element defined here by its id — so the
+    ids below are an interface, not decoration. Renaming one breaks app.ts.
+
+    The structure is four regions:
+
+      header    the controls — which orchestration pattern is in use
+      main      the transcript — the conversation with Claude
+      div       a drag handle for resizing the two columns
+      aside     the log panel — what the app did to produce that conversation
+      footer    the composer — where you type
+
+    Note there is no API key anywhere in this file, and there never will be.
+    This page talks to our own server at /api/*, and that server talks to
+    Anthropic. A key in frontend code is a key anyone can read.
+  -->
+</head>
+<body>
+
+  <!-- ===================================================================
+       REGION 1 — HEADER
+       Controls that apply to the whole conversation. The pattern selector
+       is populated from the server in step 55; the markup is here now so
+       the layout can be styled around it.
+       =================================================================== -->
+  <header id="controls">
+    <h1>Anthropic Chat Lab</h1>
+
+    <!-- What this session has cost. In the header rather than tucked
+         in the log panel, because the whole argument of this app is
+         that these decisions have a price and the price should be in
+         front of you while you make them. -->
+    <div id="session-cost" title="Estimated from published rates — see the note in Settings">
+      <span id="session-cost-value">$0.00</span>
+      <span id="session-cost-label">this session</span>
+    </div>
+
+
+  </header>
+
+  <!-- ===================================================================
+       REGION 2 — TRANSCRIPT
+       The conversation. Each turn is appended here as its own element:
+       user turns, Claude's replies, and from step 45 the tool-use cards
+       that show what happened in between.
+       =================================================================== -->
+  <!-- The conversation pane's header, mirroring the log's: title,
+       then the one action that belongs to it. -->
+  <div id="transcript-header">
+    <h2 class="pane-title">Message log</h2>
+    <button type="button" id="session-clear" class="link-button">Clear</button>
+  </div>
+
+  <!-- What produced the conversation below. Clicking it opens the
+       settings dialog, where the real controls live with room to
+       explain themselves. -->
+  <div id="transcript-bar">
+    <button type="button" id="settings-summary" class="header-status">
+      <span id="settings-summary-text">Loading settings…</span>
+    </button>
+
+    <button type="button" id="tool-summary" class="header-status">
+      <span id="tool-summary-text">Tools: loading…</span>
+    </button>
+  </div>
+
+  <!-- Shown only when no API key is set. Without this, a first run
+       looks broken: you type a question and get an error, with the
+       setting that would fix it hidden behind a dialog. Hidden by
+       default and revealed by app.ts, so it never flashes on a run
+       that is already configured. -->
+  <div id="api-key-banner" hidden>
+    <strong>No API key set.</strong>
+    <span>
+      This app needs an Anthropic API key before it can send anything.
+    </span>
+    <button type="button" id="api-key-banner-open">Add a key</button>
+  </div>
+
+  <main id="transcript" aria-live="polite" aria-label="Conversation">
+    <!-- Empty at rest. The first message a learner sends appears here.
+         aria-live tells a screen reader to announce new turns as they
+         arrive, which matters because replies stream in rather than
+         appearing all at once. -->
+  </main>
+
+  <!-- A drag handle for resizing the two columns. Sits between them in the
+       grid. role="separator" and the aria-value attributes tell a screen
+       reader what it is and where it currently sits; tabindex makes it
+       reachable by keyboard, and app.ts handles the arrow keys. -->
+  <div
+    id="column-resizer"
+    role="separator"
+    aria-orientation="vertical"
+    aria-label="Resize activity log"
+    aria-valuemin="18"
+    aria-valuemax="70"
+    aria-valuenow="28"
+    tabindex="0"
+  ></div>
+
+  <!-- ===================================================================
+       REGION 4 — LOG PANEL
+       The point of the whole app. Everything the server does while answering
+       a question shows up here: each API call, each tool invocation, token
+       counts, errors. A learner can watch an orchestration pattern work
+       rather than taking its description on trust.
+
+       Rows are appended by appendLog() in step 21. Events reach the browser
+       over Server-Sent Events, wired up in steps 19 and 20.
+       =================================================================== -->
+  <aside id="side-panel" aria-label="Activity and settings">
+
+    <!-- The pane's own header: what this is, and the one action that
+         belongs to it. Each pane now has the same shape — a title with
+         its Clear, a strip of controls, then the content. -->
+    <div id="log-header">
+      <h2 class="pane-title">
+        Activity log
+        <span id="log-count" class="tab-badge">0</span>
+      </h2>
+      <span id="log-cost"></span>
+      <button type="button" id="log-clear" class="link-button">Clear</button>
+    </div>
+
+    <!-- ---------------- Activity log tab ---------------- -->
+    <!-- The scrolling list itself. An ordered list because the sequence is
+         the information: step 1 happened before step 2. Empty at rest, with
+         a placeholder so the panel is not a blank box on first load. -->
+    <div id="panel-log" class="tab-panel">
+      <!-- Sticky, so it stays reachable however long the log gets. -->
+      <!-- One bar: the filters and the actions. Two sticky rows cost
+           twice the vertical space in a panel whose whole job is
+           showing as many rows as possible.
+
+           The filters work like a browser Network tab — a busy
+           orchestrator run produces thirty rows, and hiding the ones
+           you are not reading is the difference between a panel you
+           scan and one you scroll past. Filled by app.ts so the counts
+           can be live. -->
+      <!-- Which kinds of row to show. Directly under the title, the
+           way a browser's Network tab puts its filters under its
+           toolbar. -->
+      <div id="log-actions">
+        <div id="log-filters"></div>
+      </div>
+
+      <ol id="log-list">
+        <li class="log-empty">Nothing yet. Send a message to see what happens.</li>
+      </ol>
+    </div>
+
+  </aside>
+
+
+  <!-- ===================================================================
+       SETTINGS DIALOG
+       Tools and settings used to be tabs in the side panel, sharing
+       furniture with the activity log. They are configuration, not a
+       view of what happened, so they live in their own dialog now —
+       opened from the status line above the conversation.
+
+       <dialog> rather than a hand-built overlay: the browser supplies
+       the backdrop, focus trapping, Escape to close, and inert
+       background content.
+       =================================================================== -->
+  <dialog id="settings-dialog" aria-labelledby="settings-dialog-title">
+    <div id="settings-dialog-header">
+      <h2 id="settings-dialog-title">Settings</h2>
+      <button type="button" id="settings-dialog-close" class="link-button">
+        Done
+      </button>
+    </div>
+
+    <div id="settings-dialog-tabs" role="tablist" aria-label="Settings sections">
+      <button
+        type="button"
+        role="tab"
+        id="tab-settings"
+        aria-controls="panel-settings"
+        aria-selected="true"
+        tabindex="0"
+      >
+        Conversation
+      </button>
+      <button
+        type="button"
+        role="tab"
+        id="tab-tools"
+        aria-controls="panel-tools"
+        aria-selected="false"
+        tabindex="-1"
+      >
+        Tools
+        <span id="tool-count" class="tab-badge">0</span>
+      </button>
+    </div>
+
+    <div id="settings-dialog-body">
+    <!-- ---------------- Settings tab ---------------- -->
+    <!-- The request-shaping controls, with room to say what each one
+         actually does. They were in the header; a dropdown with a
+         one-line caption cannot explain what tool_choice means. -->
+    <div
+      id="panel-settings"
+      role="tabpanel"
+      aria-labelledby="tab-settings"
+      class="tab-panel"
+    >
+      <p class="panel-intro">
+        Each setting changes a field on the request sent to Anthropic.
+        Watch the Activity log after changing one — the request row
+        shows the field you just altered.
+      </p>
+
+      <!-- Group zero: the credential.
+
+           First, because nothing below it works without this. The key
+           is sent to this app's own server and held there in memory —
+           it is deliberately NOT saved in the browser, which is the
+           same reason the chat itself goes through the server rather
+           than calling Anthropic from the page. -->
+      <div class="setting-group">
+        <h3 class="setting-group-title">API key</h3>
+
+        <div class="setting">
+          <label for="api-key-input">Anthropic API key</label>
+
+          <div id="api-key-row">
+            <!-- type="password" so the key is not readable on a
+                 projector or in a screen share. -->
+            <input
+              type="password"
+              id="api-key-input"
+              placeholder="sk-ant-..."
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="button" id="api-key-save">Save</button>
+            <button type="button" id="api-key-clear" class="link-button">
+              Clear
+            </button>
+          </div>
+
+          <div class="setting-help" id="api-key-status">Checking…</div>
+
+          <p class="setting-note">
+            Get a key from
+            <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">
+              console.anthropic.com</a>.
+            It is held in the server's memory for as long as the server
+            runs, and is never stored in your browser — so it is gone
+            when you stop the server. To skip retyping it, put
+            <code>ANTHROPIC_API_KEY</code> in a <code>.env</code> file
+            instead; that file is git-ignored.
+          </p>
+        </div>
+      </div>
+
+      <!-- Group one: how the app structures its calls.
+
+           The pattern and the model roles are presented together, and
+           the roles indented under it, because the pattern decides
+           which roles exist at all. Shown as four equal settings they
+           looked independent, and the role dropdowns appeared and
+           vanished for no visible reason. -->
+      <div class="setting-group">
+        <h3 class="setting-group-title">How the question is answered</h3>
+
+        <div class="setting">
+          <label for="pattern-select">Orchestration pattern</label>
+          <select id="pattern-select">
+            <!-- Filled from GET /api/patterns on load. -->
+          </select>
+          <div class="setting-help" id="pattern-help">Loading…</div>
+
+          <details class="pattern-table-wrap">
+            <summary>Compare all patterns</summary>
+            <table class="pattern-table" id="pattern-table">
+              <thead>
+                <tr><th>Pattern</th><th>Requests</th><th>Cost</th></tr>
+              </thead>
+              <tbody id="pattern-table-body"></tbody>
+            </table>
+            <p class="setting-note">
+              One question — "Explain prompt caching" with the Terse
+              prompt — run through each pattern. Note that Routing
+              costs the most on only two requests: request count is not
+              cost, output tokens are.
+            </p>
+          </details>
+        </div>
+
+        <!-- Indented, because these belong to the pattern above. -->
+        <div class="setting setting-nested" id="model-settings">
+          <label>Models for this pattern</label>
+          <p class="setting-what">
+            The pattern above makes several calls, and they are not all
+            the same kind of job. Only the roles it actually uses are
+            shown.
+          </p>
+          <div id="model-roles"></div>
+        </div>
+      </div>
+
+      <!-- Group two: what is in the request, regardless of pattern. -->
+      <div class="setting-group">
+        <h3 class="setting-group-title">What goes in each request</h3>
+
+        <div class="setting">
+          <label for="prompt-select">System prompt</label>
+          <select id="prompt-select"></select>
+          <p class="setting-help" id="prompt-help">Loading…</p>
+          <p class="setting-note">
+            Sent as the top-level <code>system</code> field, not as a
+            message. It is resent on every request, so a long one costs
+            input tokens every turn — which is exactly why it is the
+            natural thing to cache.
+          </p>
+        </div>
+
+        <div class="setting">
+          <label for="cache-mode-select">Prompt caching</label>
+          <select id="cache-mode-select"></select>
+          <div class="setting-help" id="cache-mode-help">Loading…</div>
+          <p class="setting-note">
+            Caching is a <strong>prefix</strong> match: the API renders a
+            request as <code>tools</code> → <code>system</code> →
+            <code>messages</code>, and a cache entry covers everything up
+            to a breakpoint. Any byte that changes before it invalidates
+            the lot. The minimum prefix is 1,024 tokens (2,048 on Haiku),
+            and a shorter one is silently not cached — which is why
+            enabling tools usually matters more than the prompt.
+          </p>
+        </div>
+
+        <div class="setting">
+          <label for="thinking-select">Extended thinking</label>
+          <select id="thinking-select"></select>
+          <div class="setting-help" id="thinking-help">Loading…</div>
+          <p class="setting-note">
+            This does <strong>not</strong> control whether Claude thinks.
+            On these models thinking is always on and always billed —
+            <code>display</code> only decides whether the thinking blocks
+            come back with text in them. The default is
+            <code>"omitted"</code>: reasoning you paid for and cannot
+            read. Turn it on, ask the same question twice, and compare
+            the output tokens — they barely move.
+            <code>budget_tokens</code> is gone; depth is
+            <code>output_config.effort</code> instead. Adaptive thinking
+            also decides <em>whether</em> to reason: an easy question
+            with a terse prompt often returns no thinking block at all,
+            so ask something hard enough to be worth thinking about.
+          </p>
+        </div>
+
+        <div class="setting">
+          <label for="effort-select">Effort</label>
+          <select id="effort-select"></select>
+          <div class="setting-help" id="effort-help">Loading…</div>
+          <p class="setting-note">
+            <code>output_config.effort</code> — what replaced
+            <code>budget_tokens</code>, which is now a 400 on every
+            model here. A budget was a token ceiling you had to guess;
+            effort is a dial, and the model decides what the level is
+            worth for the question in front of it. Measured on Haiku
+            (<code>npm run try-effort</code>): on a hard question
+            <strong>low</strong> spent 2,438 output tokens and
+            <strong>xhigh</strong> 6,501 — 2.7× the cost, for an answer
+            the same length, because the extra went into reasoning. On
+            an easy one ("what does <code>end_turn</code> mean?")
+            <strong>max</strong> cost <strong>5.2×</strong> what low
+            did and returned the same answer: effort you pay for and
+            do not receive. At <code>max</code> the model can also
+            spend the entire <code>max_tokens</code> budget thinking
+            and return <em>no answer at all</em>, with
+            <code>stop_reason: "max_tokens"</code>. Note the defaults
+            differ by model (medium on
+            Opus 5.5 and Haiku 5.5, high on Sonnet 5.5), so comparing
+            two models without pinning this compares two effort levels
+            as well.
+          </p>
+        </div>
+
+        <div class="setting">
+          <label for="tool-choice-select">Tool choice</label>
+          <select id="tool-choice-select"></select>
+          <p class="setting-help" id="tool-choice-help">Loading…</p>
+          <p class="setting-note">
+            Sent as <code>tool_choice</code>. It controls whether Claude
+            may decide for itself, must not use a tool, or — on older
+            models — must use one. Forced tool use was removed on
+            current models, and the two options marked "removed" return
+            a 400 so you can see it.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---------------- Tools tab ---------------- -->
+    <!-- Which tools Claude may call. Unticking one removes it from the
+         request entirely, so the model is never told it exists — that is
+         the difference between a tool being unavailable and a tool being
+         available but discouraged. -->
+    <div
+      id="panel-tools"
+      role="tabpanel"
+      aria-labelledby="tab-tools"
+      class="tab-panel"
+      hidden
+    >
+      <p class="panel-intro">
+        Only ticked tools are sent to Claude. A tool that is not sent cannot
+        be called, because the model is never told it exists.
+      </p>
+
+      <div id="tool-actions">
+        <button type="button" id="tools-all" class="link-button">Select all</button>
+        <button type="button" id="tools-none" class="link-button">Select none</button>
+      </div>
+
+      <!-- Filled from GET /api/tools in step 37. -->
+      <ul id="tool-list">
+        <li class="tool-empty">No tools registered yet.</li>
+      </ul>
+    </div>
+
+
+    </div>
+  </dialog>
+
+  <!-- ===================================================================
+       REGION 5 — COMPOSER
+       Where you type. A form rather than a bare textarea plus button, so
+       that pressing Enter submits and the browser handles the semantics.
+       =================================================================== -->
+  <footer id="composer">
+    <!-- Five questions, each chosen to make ONE thing visible in the
+         activity log. A class can start without typing, and without
+         the first five minutes being spent inventing questions that
+         happen not to exercise anything.
+
+         Filled by app.ts so each button can carry its own note about
+         what to watch for. -->
+    <div id="presets" aria-label="Example questions">
+      <span id="presets-label">Try:</span>
+    </div>
+
+    <form id="composer-form">
+      <label for="message-input" class="visually-hidden">Your message</label>
+      <textarea
+        id="message-input"
+        name="message"
+        rows="3"
+        placeholder="Ask Claude something..."
+        required
+      ></textarea>
+      <button type="submit" id="send-button">
+        <span>Send</span>
+        <span class="send-hint">Enter</span>
+      </button>
+    </form>
+
+  </footer>
+
+  <!-- The compiled frontend script. public/app.ts compiles to public/app.js;
+       the browser cannot run TypeScript directly. Wired up in step 15. -->
+  <script type="module" src="/app.js"></script>
+
+</body>
+</html>

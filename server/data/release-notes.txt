@@ -1,0 +1,47 @@
+Anthropic Chat Lab — release notes
+==================================
+
+This file exists so the read_file tool has more than one thing to read.
+A sandbox containing a single file cannot demonstrate a model choosing
+a path, so there are three here with deliberately different shapes:
+this one (plain text), kb.json (a JSON corpus) and example-config.json
+(a small settings object).
+
+v0.8  Phase 8 complete — orchestration patterns
+      Seven patterns behind one interface, switchable from the Settings
+      tab: single call, tool loop, prompt chaining, routing,
+      parallelisation, orchestrator with workers, and evaluator with
+      optimiser. The same question run through each produced costs from
+      $0.01 to $0.08 — and the most expensive was not the one making
+      the most requests.
+
+v0.7  Phase 7 complete — the tool loop
+      A hand-written agentic loop with an iteration cap, parallel tool
+      execution via Promise.all, schema validation before any tool
+      runs, and errored tool_result blocks so Claude can recover from a
+      failure rather than the request dying.
+
+v0.6  Phase 6 complete — six example tools
+      calculator, get_current_time, notes, search_docs, read_file and
+      flaky_service. Each teaches one idea: not accepting a program as
+      input, facts a model cannot know, state between calls, retrieval,
+      path sandboxing, and what happens when a tool fails.
+
+v0.5  Phase 5 complete — real chat
+      Streaming replies, conversation history, selectable system
+      prompts, and typed error handling. The log panel shows token
+      counts and an estimated cost for every call.
+
+v0.4  Phase 4 complete — the log channel
+      Server-Sent Events carry structured log events to the browser.
+      Rows with detail expand to pretty-printed JSON.
+
+v0.3  Phase 3 complete — server and frontend
+      Express, a static frontend, and a two-column layout with a
+      resizable activity panel.
+
+v0.2  Phase 2 complete — first Claude call
+      Usage numbers and the SDK's typed error classes.
+
+v0.1  Phase 1 complete — scaffolding
+      TypeScript project that compiles.

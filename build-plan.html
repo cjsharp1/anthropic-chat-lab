@@ -1,0 +1,1453 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anthropic Chat Lab Build Plan</title>
+<style>
+  /* Layout: a single reading column of numbered phases; each phase is a run of
+     checkable steps. Technical-manual feel — monospace labels, hairline rules,
+     no cards. Progress lives in the sticky header. */
+  :root {
+    --bg: #faf9f7;
+    --surface: #ffffff;
+    --fg: #1c1a17;
+    --fg-dim: #6b655c;
+    --rule: #ddd8d0;
+    --accent: #9a4f20;
+    --accent-soft: #f0e4da;
+    --done: #4a6b48;
+    --warn: #8a6410;
+    --warn-soft: #f5eeda;
+    --font-display: "Instrument Serif", Georgia, "Times New Roman", serif;
+    --font-body: "Spectral", Georgia, serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #171614;
+      --surface: #201e1b;
+      --fg: #eae6e0;
+      --fg-dim: #978f84;
+      --rule: #38342f;
+      --accent: #d98a55;
+      --accent-soft: #35261c;
+      --done: #8fb58c;
+      --warn: #d9b45f;
+      --warn-soft: #332b17;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #171614;
+    --surface: #201e1b;
+    --fg: #eae6e0;
+    --fg-dim: #978f84;
+    --rule: #38342f;
+    --accent: #d98a55;
+    --accent-soft: #35261c;
+    --done: #8fb58c;
+    --warn: #d9b45f;
+    --warn-soft: #332b17;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.6;
+    margin: 0;
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0 0 auto;
+    height: env(safe-area-inset-top, 0px);
+    z-index: 10;
+    background: var(--bg);
+  }
+
+  .wrap {
+    max-width: 50rem;
+    margin: 0 auto;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 0 5rem;
+  }
+
+  /* ---- Header ---- */
+  header.top {
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    z-index: 9;
+    background: var(--bg);
+    border-bottom: 1px solid var(--rule);
+    padding-block: 0.9rem 0.75rem;
+  }
+  .top-inner {
+    max-width: 50rem;
+    margin: 0 auto;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem 1rem;
+    flex-wrap: wrap;
+  }
+  .top h1 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 1.45rem;
+    margin: 0;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+    min-width: 0;
+  }
+  .counter {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--fg-dim);
+    font-variant-numeric: tabular-nums;
+    margin-left: auto;
+    white-space: nowrap;
+  }
+  .counter b { color: var(--accent); font-weight: 600; }
+  .bar {
+    max-width: 50rem;
+    margin: 0.6rem auto 0;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .bar-track {
+    height: 3px;
+    background: var(--rule);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transition: width 0.25s ease;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .bar-fill { transition: none; }
+  }
+
+  /* ---- Intro ---- */
+  .intro {
+    padding-block: 1.75rem 0.5rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .intro p {
+    margin: 0 0 0.9rem;
+    max-width: 62ch;
+    color: var(--fg-dim);
+  }
+  .intro p strong { color: var(--fg); font-weight: 600; }
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    gap: 0.85rem 1.5rem;
+    margin: 1.25rem 0 1.5rem;
+  }
+  .meta-grid div { min-width: 0; }
+  .meta-grid dt {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--fg-dim);
+    margin-bottom: 0.2rem;
+  }
+  .meta-grid dd {
+    margin: 0;
+    font-size: 0.92rem;
+  }
+  .controls {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+  }
+  button.ghost {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    background: transparent;
+    color: var(--fg-dim);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 0.4rem 0.7rem;
+    cursor: pointer;
+  }
+  button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+  button.ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---- Phases ---- */
+  .phase { padding-block: 2.25rem 0.5rem; }
+  .phase-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    border-bottom: 2px solid var(--fg);
+    padding-bottom: 0.4rem;
+    margin-bottom: 0.35rem;
+  }
+  .phase-num {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+    font-variant-numeric: tabular-nums;
+  }
+  .phase-head h2 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 1.5rem;
+    margin: 0;
+    letter-spacing: -0.01em;
+    min-width: 0;
+  }
+  .phase-count {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--fg-dim);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .phase-note {
+    color: var(--fg-dim);
+    font-size: 0.9rem;
+    margin: 0 0 0.5rem;
+    max-width: 62ch;
+  }
+
+  /* ---- Steps ---- */
+  .step {
+    display: grid;
+    grid-template-columns: 1.6rem 2.6rem 1fr;
+    gap: 0 0.6rem;
+    padding-block: 0.85rem;
+    border-bottom: 1px solid var(--rule);
+    align-items: start;
+  }
+  .step > input[type="checkbox"] {
+    appearance: none;
+    width: 1.05rem;
+    height: 1.05rem;
+    border: 1.5px solid var(--fg-dim);
+    border-radius: 3px;
+    margin: 0.25rem 0 0;
+    cursor: pointer;
+    position: relative;
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .step > input[type="checkbox"]:checked {
+    background: var(--done);
+    border-color: var(--done);
+  }
+  .step > input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 0.31rem;
+    top: 0.1rem;
+    width: 0.26rem;
+    height: 0.52rem;
+    border: solid var(--surface);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  .step > input[type="checkbox"]:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .step-id {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--fg-dim);
+    padding-top: 0.28rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .step-body { min-width: 0; }
+  .step-title {
+    font-weight: 600;
+    display: block;
+    margin-bottom: 0.2rem;
+    cursor: pointer;
+  }
+  .step-what {
+    color: var(--fg-dim);
+    font-size: 0.92rem;
+    margin: 0 0 0.4rem;
+  }
+  .check {
+    font-size: 0.86rem;
+    background: var(--accent-soft);
+    border-left: 2px solid var(--accent);
+    padding: 0.5rem 0.6rem;
+    margin: 0;
+    border-radius: 0 3px 3px 0;
+  }
+  .check b {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 0.3rem;
+  }
+  /* The command to run, set apart so it is obviously copyable.
+     Must be a block: as an inline span, `white-space: pre` would break each
+     line into its own ragged box instead of one panel. */
+  .cmd {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 0.45rem 0.6rem;
+    margin: 0 0 0.4rem;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--fg);
+  }
+  /* The expected result, below the command rather than trailing off it. */
+  .result { display: block; }
+  /* For steps checked by looking at the screen rather than running something.
+     Normal case, not uppercase: these carry real instructions (a URL, which
+     pattern to select), and uppercasing them hurts legibility. */
+  .by-eye {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.01em;
+    color: var(--fg-dim);
+    margin-bottom: 0.3rem;
+  }
+  /* A warning about something that is known to bite on this step. */
+  .gotcha {
+    font-size: 0.84rem;
+    border-left: 2px solid var(--warn);
+    background: var(--warn-soft);
+    padding: 0.45rem 0.6rem;
+    margin: 0.4rem 0 0;
+    border-radius: 0 3px 3px 0;
+  }
+  .gotcha b {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--warn);
+    display: block;
+    margin-bottom: 0.1rem;
+  }
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    background: var(--accent-soft);
+    padding: 0.08em 0.3em;
+    border-radius: 2px;
+    word-break: break-word;
+  }
+  .check code { background: transparent; padding: 0; }
+  .step.done .step-title { text-decoration: line-through; color: var(--fg-dim); }
+  .step.done .step-id { color: var(--done); }
+
+  /* ---- Footer ---- */
+  .outro {
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 2px solid var(--fg);
+  }
+  .outro h2 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 1.3rem;
+    margin: 0 0 0.6rem;
+  }
+  .outro p { color: var(--fg-dim); font-size: 0.92rem; max-width: 62ch; }
+  .outro ul { color: var(--fg-dim); font-size: 0.92rem; max-width: 62ch; padding-left: 1.1rem; }
+  .outro li { margin-bottom: 0.35rem; }
+
+  @media (max-width: 460px) {
+    .step { grid-template-columns: 1.4rem 1fr; }
+    .step-id { grid-column: 2; padding-top: 0; margin-bottom: 0.15rem; }
+    .step-body { grid-column: 2; }
+    .phase-head h2 { font-size: 1.3rem; }
+  }
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Spectral:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+
+<header class="top">
+  <div class="top-inner">
+    <h1>Anthropic Chat Lab</h1>
+    <span class="counter"><b id="done-count">0</b> / <span id="total-count">0</span> steps</span>
+  </div>
+  <div class="bar"><div class="bar-track"><div class="bar-fill" id="bar-fill"></div></div></div>
+</header>
+
+<div class="wrap">
+
+  <section class="intro">
+    <p>A teaching app for the Anthropic certifications: a simple TypeScript chat client over the Claude API, with a live log panel, example tools, and switchable orchestration patterns. Every file is commented with a plain-language overview of what it does.</p>
+    <p><strong>How to use this plan.</strong> Work top to bottom. Each step is sized for under 30 minutes and ends with a done-check you can run or see. Tick the box when the check passes — your progress is saved in this browser, so open this file from the same path each time. If a step stalls, paste it back to Claude and ask for it to be split into <code>23a</code>, <code>23b</code>, and so on.</p>
+
+    <p>This plan lives in the project folder it describes. Every path in the steps below is relative to that folder, and that is where you run every command.</p>
+
+    <dl class="meta-grid">
+      <div><dt>Project root</dt><dd><code>anthropic-chat-lab\</code></dd></div>
+      <div><dt>Stack</dt><dd>Node + Express + vanilla TS</dd></div>
+      <div><dt>Model</dt><dd><code>claude-opus-5-5</code></dd></div>
+      <div><dt>Patterns</dt><dd>7 switchable</dd></div>
+      <div><dt>Tools</dt><dd>6 examples</dd></div>
+      <div><dt>Phases</dt><dd>10</dd></div>
+    </dl>
+
+    <div class="controls">
+      <button class="ghost" id="collapse-done">Hide completed</button>
+      <button class="ghost" id="reset">Reset all</button>
+    </div>
+  </section>
+
+  <!-- ============ PHASE 1 ============ -->
+  <section class="phase" data-phase="1">
+    <div class="phase-head">
+      <span class="phase-num">PHASE 01</span>
+      <h2>Project skeleton</h2>
+      <span class="phase-count"></span>
+    </div>
+    <p class="phase-note">Get a TypeScript project that compiles and runs before any API calls exist.</p>
+
+    <label class="step">
+      <input type="checkbox" data-id="1">
+      <span class="step-id">01</span>
+      <span class="step-body">
+        <span class="step-title">Initialise npm in the project folder</span>
+        <p class="step-what">Open a terminal in <code>anthropic-chat-lab/</code> — the folder this plan sits in. Run <code>npm init -y</code>, then edit <code>package.json</code> to set <code>"type": "module"</code> and a clear <code>"name"</code>.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">node -e "console.log(require('./package.json').type)"</span>
+          <span class="result">Prints <code>module</code>.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="2">
+      <span class="step-id">02</span>
+      <span class="step-body">
+        <span class="step-title">Install runtime and dev dependencies</span>
+        <p class="step-what">Install <code>@anthropic-ai/sdk</code>, <code>express</code>, <code>dotenv</code>, <code>zod</code>. As dev deps install <code>typescript</code>, <code>tsx</code>, <code>@types/node</code>, <code>@types/express</code>.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npm ls --depth=0</span>
+          <span class="result">Lists all eight packages, no <code>UNMET</code> lines.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="3">
+      <span class="step-id">03</span>
+      <span class="step-body">
+        <span class="step-title">Write tsconfig.json</span>
+        <p class="step-what">Target <code>ES2022</code>, module <code>NodeNext</code>, <code>strict: true</code>, <code>outDir: dist</code>, <code>rootDir: .</code>, and <code>"types": ["node"]</code>. Include <code>server</code>, <code>public</code> and <code>scripts</code>. Add a comment block at the top saying what each option is for.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">mkdir server public scripts
+echo "export {};" &gt; scripts/placeholder.ts
+npx tsc --noEmit</span>
+          <span class="result">Exits 0 with no output.</span></p>
+        <p class="gotcha"><b>Gotcha</b><code>tsc</code> fails with <code>TS18003</code> when <code>include</code> matches zero files, so create the folders and one throwaway file first. Also set <code>"types": ["node"]</code> — declaring <code>lib</code> explicitly stops <code>@types/node</code> loading automatically, and <code>process</code> then goes unrecognised.</p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="4">
+      <span class="step-id">04</span>
+      <span class="step-body">
+        <span class="step-title">Add .gitignore and .env.example</span>
+        <p class="step-what">Ignore <code>node_modules</code>, <code>dist</code>, <code>.env</code>. Create <code>.env.example</code> with <code>ANTHROPIC_API_KEY=</code> and <code>PORT=3000</code> as a template to copy.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">ls .gitignore .env.example &amp;&amp; grep -x "\.env" .gitignore</span>
+          <span class="result">Both files listed, and the grep prints <code>.env</code>.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="5">
+      <span class="step-id">05</span>
+      <span class="step-body">
+        <span class="step-title">Create your real .env and verify the key loads</span>
+        <p class="step-what">Copy <code>.env.example</code> to <code>.env</code> and paste your real API key into it. Write <code>scripts/check-env.ts</code> to load dotenv and print only the key's first 8 characters — never a secret in full.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npx tsx scripts/check-env.ts</span>
+          <span class="result">Prints <code>PASS … sk-ant-a…</code>, not <code>undefined</code>.</span></p>
+        <p class="gotcha"><b>Gotcha</b>Only you can paste the key — an assistant cannot do this step for you. In the script, narrow the key with an early <code>return</code> inside a function: TypeScript does not know <code>process.exit()</code> ends the program, so after a bare exit call it still treats the value as possibly undefined.</p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="6">
+      <span class="step-id">06</span>
+      <span class="step-body">
+        <span class="step-title">Add npm scripts</span>
+        <p class="step-what">Add <code>"dev": "tsx watch server/index.ts"</code>, <code>"build": "tsc"</code>, <code>"typecheck": "tsc --noEmit"</code> and <code>"check-env": "tsx scripts/check-env.ts"</code>. Remove the generated <code>test</code> placeholder.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npm run typecheck</span>
+          <span class="result">Exits 0 with no type errors.</span></p>
+      </span>
+    </label>
+  </section>
+
+  <!-- ============ PHASE 2 ============ -->
+  <section class="phase" data-phase="2">
+    <div class="phase-head">
+      <span class="phase-num">PHASE 02</span>
+      <h2>First Claude call</h2>
+      <span class="phase-count"></span>
+    </div>
+    <p class="phase-note">Prove the API works from a script before wrapping it in a server.</p>
+
+    <label class="step">
+      <input type="checkbox" data-id="7">
+      <span class="step-id">07</span>
+      <span class="step-body">
+        <span class="step-title">Create the shared Anthropic client module</span>
+        <p class="step-what">Write <code>server/anthropic.ts</code>: load dotenv, export one shared client, and export <code>MODEL</code>, <code>SMALL_MODEL</code> and <code>MAX_TOKENS</code> as named constants. Comment why one shared client beats one per request.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npx tsx scripts/scratch-client.ts</span>
+          <span class="result">A two-line scratch script importing the module and logging <code>typeof client.messages.create</code> prints <code>function</code>. Delete the script after.</span></p>
+        <p class="gotcha"><b>Gotcha</b>Cross-file imports need a <code>.js</code> extension even though the file on disk is <code>.ts</code> — <code>import … from "./anthropic.js"</code>. That is how <code>NodeNext</code> works, and it catches nearly everyone once.</p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="8">
+      <span class="step-id">08</span>
+      <span class="step-body">
+        <span class="step-title">Send one hard-coded message</span>
+        <p class="step-what">In <code>scripts/hello-claude.ts</code>, call <code>client.messages.create</code> with <code>max_tokens: 1024</code> and one user message. Loop <code>response.content</code> and print blocks where <code>block.type === "text"</code>.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npx tsx scripts/hello-claude.ts</span>
+          <span class="result">Prints a real sentence from Claude. Costs a fraction of a penny.</span></p>
+        <p class="gotcha"><b>Gotcha</b>A 401 here is often routing, not credentials. The SDK reads <code>ANTHROPIC_BASE_URL</code> from the environment, so a company LLM gateway silently intercepts the call. If the error names a gateway, pin the client: <code>new Anthropic({ baseURL: "https://api.anthropic.com", apiKey: process.env.ANTHROPIC_API_KEY })</code>.</p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="9">
+      <span class="step-id">09</span>
+      <span class="step-body">
+        <span class="step-title">Print the usage numbers</span>
+        <p class="step-what">Extend the script to log <code>response.usage.input_tokens</code>, <code>output_tokens</code>, <code>response.model</code> and <code>response.stop_reason</code>. Add a rough cost line so the numbers mean something.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npx tsx scripts/hello-claude.ts</span>
+          <span class="result">Shows non-zero token counts and <code>stop_reason  end_turn</code>.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="10">
+      <span class="step-id">10</span>
+      <span class="step-body">
+        <span class="step-title">Try a deliberately bad key</span>
+        <p class="step-what">Catch the error with <code>instanceof Anthropic.AuthenticationError</code> and print a friendly message. Note the status code in a comment. Pass the bad key as an environment variable so your real <code>.env</code> is never edited.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">ANTHROPIC_API_KEY=sk-ant-invalid npx tsx scripts/hello-claude.ts</span>
+          <span class="result">Prints a readable auth message, no stack trace. Re-run without the prefix to confirm it still works.</span></p>
+      </span>
+    </label>
+  </section>
+
+  <!-- ============ PHASE 3 ============ -->
+  <section class="phase" data-phase="3">
+    <div class="phase-head">
+      <span class="phase-num">PHASE 03</span>
+      <h2>Server and static frontend</h2>
+      <span class="phase-count"></span>
+    </div>
+    <p class="phase-note">A page in the browser that can reach the server. No Claude yet.</p>
+
+    <label class="step">
+      <input type="checkbox" data-id="11">
+      <span class="step-id">11</span>
+      <span class="step-body">
+        <span class="step-title">Minimal Express server</span>
+        <p class="step-what">Write <code>server/index.ts</code>: create the app, add <code>express.json()</code>, serve <code>public/</code> as static, add <code>GET /api/health</code> returning <code>{ ok: true }</code>, and listen on <code>PORT</code>.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npm run dev
+# then, in a second terminal:
+curl localhost:3000/api/health</span>
+          <span class="result">Prints <code>{"ok":true}</code>.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="12">
+      <span class="step-id">12</span>
+      <span class="step-body">
+        <span class="step-title">Build the HTML shell</span>
+        <p class="step-what">Write <code>public/index.html</code> with three regions: a header holding the pattern selector, a message transcript, and a composer (textarea plus Send button). No styling yet.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">All three regions visible, stacked, unstyled.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="13">
+      <span class="step-id">13</span>
+      <span class="step-body">
+        <span class="step-title">Add the log panel region</span>
+        <p class="step-what">Add a fourth region beside or below the transcript for logs, with a heading and an empty scrollable list. This is where every event will appear.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">The empty log panel is visible, and scrolls once you paste in a dozen dummy rows by hand.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="14">
+      <span class="step-id">14</span>
+      <span class="step-body">
+        <span class="step-title">Style the two-column layout</span>
+        <p class="step-what">Write <code>public/styles.css</code>: chat on the left, logs on the right, stacking to one column under 800px. Use a monospace font for the log panel.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000, then drag the window narrow</span>
+          <span class="result">Two columns at desktop width; one column below 800px, with nothing clipped.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="15">
+      <span class="step-id">15</span>
+      <span class="step-body">
+        <span class="step-title">Compile the frontend TypeScript</span>
+        <p class="step-what">Create <code>public/app.ts</code> that logs <code>"frontend loaded"</code>. Add a <code>tsconfig</code> include or a second build script so it emits <code>public/app.js</code>, and reference that from the HTML.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npx tsc  # emits public/app.js
+# then open localhost:3000 and look at the browser console</span>
+          <span class="result">Console shows <code>frontend loaded</code>, Network tab shows no 404 for <code>app.js</code>.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="16">
+      <span class="step-id">16</span>
+      <span class="step-body">
+        <span class="step-title">Wire the Send button to the health route</span>
+        <p class="step-what">On click, read the textarea, <code>fetch('/api/health')</code>, and append the result to the transcript. This proves the round trip end to end.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">Clicking Send appends <code>{"ok":true}</code> to the transcript.</span></p>
+      </span>
+    </label>
+  </section>
+
+  <!-- ============ PHASE 4 ============ -->
+  <section class="phase" data-phase="4">
+    <div class="phase-head">
+      <span class="phase-num">PHASE 04</span>
+      <h2>The log channel</h2>
+      <span class="phase-count"></span>
+    </div>
+    <p class="phase-note">Build logging before the features, so every feature after this is observable while you write it.</p>
+
+    <label class="step">
+      <input type="checkbox" data-id="17">
+      <span class="step-id">17</span>
+      <span class="step-body">
+        <span class="step-title">Define the log event shape</span>
+        <p class="step-what">In <code>server/types.ts</code>, define a <code>LogEvent</code> type: <code>level</code> (info / tool / api / error), <code>label</code>, optional <code>detail</code>, and <code>at</code> timestamp. Comment what each level means.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npm run typecheck</span>
+          <span class="result">Exits 0, with <code>LogEvent</code> exported from <code>server/types.ts</code>.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="18">
+      <span class="step-id">18</span>
+      <span class="step-body">
+        <span class="step-title">Create the logger helper</span>
+        <p class="step-what">Write <code>server/logger.ts</code> exporting a <code>makeLogger(emit)</code> function that returns <code>{ info, tool, api, error }</code> methods, each building a <code>LogEvent</code> and passing it to <code>emit</code>.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npx tsx -e "import {makeLogger} from './server/logger.ts';
+  makeLogger(console.log).info('hello')"</span>
+          <span class="result">Prints one object with <code>level</code>, <code>label</code> and <code>at</code>.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="19">
+      <span class="step-id">19</span>
+      <span class="step-body">
+        <span class="step-title">Add a Server-Sent Events endpoint</span>
+        <p class="step-what">Add <code>POST /api/chat</code> that sets <code>Content-Type: text/event-stream</code>, writes one hard-coded event as <code>data: {...}\n\n</code>, then ends. Comment why SSE suits one-way streaming.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">curl -N -X POST localhost:3000/api/chat</span>
+          <span class="result">Prints one <code>data: {...}</code> line, then the connection closes.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="20">
+      <span class="step-id">20</span>
+      <span class="step-body">
+        <span class="step-title">Consume the stream in the browser</span>
+        <p class="step-what">Replace the health <code>fetch</code> with a POST whose body you read via <code>response.body.getReader()</code>. Split on blank lines, <code>JSON.parse</code> each <code>data:</code> payload.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd"># open localhost:3000, click Send, watch the browser console</span>
+          <span class="result">The hard-coded event appears as a parsed JavaScript object, not as raw text.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="21">
+      <span class="step-id">21</span>
+      <span class="step-body">
+        <span class="step-title">Render log events into the panel</span>
+        <p class="step-what">Write <code>appendLog(event)</code> in <code>app.ts</code>: create a row with the timestamp, a coloured level tag, and the label. Auto-scroll to the newest row.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">The event renders as a formatted row with a timestamp and a coloured level tag.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="22">
+      <span class="step-id">22</span>
+      <span class="step-body">
+        <span class="step-title">Make detail rows expandable</span>
+        <p class="step-what">When an event has <code>detail</code>, render it inside a <code>&lt;details&gt;</code> element so full JSON is available without flooding the panel.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">A row with detail expands to pretty-printed JSON on click; rows without detail stay plain.</span></p>
+      </span>
+    </label>
+  </section>
+
+  <!-- ============ PHASE 5 ============ -->
+  <section class="phase" data-phase="5">
+    <div class="phase-head">
+      <span class="phase-num">PHASE 05</span>
+      <h2>Real chat, streaming</h2>
+      <span class="phase-count"></span>
+    </div>
+    <p class="phase-note">Claude's words reach the page, and the conversation survives more than one turn.</p>
+
+    <label class="step">
+      <input type="checkbox" data-id="23">
+      <span class="step-id">23</span>
+      <span class="step-body">
+        <span class="step-title">Call Claude from the chat route</span>
+        <p class="step-what">In <code>POST /api/chat</code>, read <code>{ messages }</code> from the body and call <code>client.messages.create</code>. Emit an <code>api</code> log before the call and after it, then send the text as a <code>text</code> event.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">A typed question returns Claude's answer, with an <code>api</code> log row before and after it.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="24">
+      <span class="step-id">24</span>
+      <span class="step-body">
+        <span class="step-title">Switch to streaming</span>
+        <p class="step-what">Replace <code>.create</code> with <code>client.messages.stream</code>. Iterate events; on <code>content_block_delta</code> with <code>text_delta</code>, forward the fragment as a <code>delta</code> event.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">Text appears progressively rather than in one block at the end.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="25">
+      <span class="step-id">25</span>
+      <span class="step-body">
+        <span class="step-title">Log the final message summary</span>
+        <p class="step-what">After the stream, call <code>stream.finalMessage()</code> and emit an <code>api</code> log with the model, stop reason, and both token counts in <code>detail</code>.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">Each reply ends with one expandable log row showing model, stop reason and both token counts.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="26">
+      <span class="step-id">26</span>
+      <span class="step-body">
+        <span class="step-title">Keep conversation history client-side</span>
+        <p class="step-what">Hold a <code>messages</code> array in <code>app.ts</code>. Push the user turn before sending and the assistant turn after the stream closes, then send the whole array each time.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">Tell Claude your name, then ask "what did I just say?" — it answers correctly.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="27">
+      <span class="step-id">27</span>
+      <span class="step-body">
+        <span class="step-title">Add a system prompt</span>
+        <p class="step-what">Add a <code>system</code> string in <code>server/prompts.ts</code> describing a patient teaching assistant. Pass it on every request and log that it was applied.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">Replies take on the described tone, and a log row names the system prompt.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="28">
+      <span class="step-id">28</span>
+      <span class="step-body">
+        <span class="step-title">Handle API errors in the UI</span>
+        <p class="step-what">Wrap the call in try/catch. Catch specific classes first — <code>RateLimitError</code>, then <code>APIStatusError</code>, then <code>APIConnectionError</code> — and emit an <code>error</code> event the frontend renders in red.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd"># temporarily set MODEL to "claude-does-not-exist" in server/anthropic.ts,
+# send a message, then change it back</span>
+          <span class="result">A readable red error row appears and the server stays running.</span></p>
+      </span>
+    </label>
+  </section>
+
+  <!-- ============ PHASE 6 ============ -->
+  <section class="phase" data-phase="6">
+    <div class="phase-head">
+      <span class="phase-num">PHASE 06</span>
+      <h2>Example tools</h2>
+      <span class="phase-count"></span>
+    </div>
+    <p class="phase-note">Six tools that each teach one idea. Build the registry first so adding the rest is quick.</p>
+
+    <label class="step">
+      <input type="checkbox" data-id="29">
+      <span class="step-id">29</span>
+      <span class="step-body">
+        <span class="step-title">Define the tool registry</span>
+        <p class="step-what">In <code>server/tools/registry.ts</code>, define a <code>LabTool</code> interface: name, description, Zod input schema, and an async <code>run</code>. Export an array plus a <code>byName</code> lookup map.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npm run typecheck</span>
+          <span class="result">Exits 0, with <code>LabTool</code> and an empty tools array exported.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="30">
+      <span class="step-id">30</span>
+      <span class="step-body">
+        <span class="step-title">Tool 1 — calculator</span>
+        <p class="step-what">Write <code>server/tools/calculator.ts</code> taking <code>{ a, b, op }</code>. Use a switch, not <code>eval</code>. Comment why evaluating model-supplied strings is unsafe.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npx tsx -e "import {calculator} from './server/tools/calculator.ts';
+  calculator.run({a:7,b:6,op:'multiply'}).then(console.log)"</span>
+          <span class="result">Prints <code>42</code>.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="31">
+      <span class="step-id">31</span>
+      <span class="step-body">
+        <span class="step-title">Tool 2 — current time</span>
+        <p class="step-what">Write a <code>get_current_time</code> tool taking an optional IANA timezone and returning a formatted string. The classic example of knowledge the model cannot have.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npx tsx -e "import {currentTime} from './server/tools/current-time.ts';
+  currentTime.run({timezone:'Europe/London'}).then(console.log)"</span>
+          <span class="result">Prints the correct London time.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="32">
+      <span class="step-id">32</span>
+      <span class="step-body">
+        <span class="step-title">Tool 3 — in-memory notes store</span>
+        <p class="step-what">Write a <code>notes</code> tool with actions save / get / list over a module-level <code>Map</code>. Shows state persisting between tool calls inside one conversation.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npx tsx scripts/try-notes.ts   # save one note, then list</span>
+          <span class="result">The listing includes the note just saved.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="33">
+      <span class="step-id">33</span>
+      <span class="step-body">
+        <span class="step-title">Seed a small knowledge base file</span>
+        <p class="step-what">Create <code>server/data/kb.json</code>: 8–12 short records about the Anthropic API, each with id, title, and body. This is your retrieval corpus.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">node -e "console.log(require('./server/data/kb.json').length)"</span>
+          <span class="result">Prints 8 or more.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="34">
+      <span class="step-id">34</span>
+      <span class="step-body">
+        <span class="step-title">Tool 4 — knowledge base search</span>
+        <p class="step-what">Write a <code>search_docs</code> tool doing case-insensitive keyword scoring over <code>kb.json</code> and returning the top 3 with ids. Simple retrieval without a vector database.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npx tsx -e "import {searchDocs} from './server/tools/search-docs.ts';
+  searchDocs.run({query:'tool use'}).then(console.log)"</span>
+          <span class="result">The most relevant record is first in the results.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="35">
+      <span class="step-id">35</span>
+      <span class="step-body">
+        <span class="step-title">Tool 5 — sandboxed file reader</span>
+        <p class="step-what">Write a <code>read_file</code> tool confined to <code>server/data/</code>. Resolve the path, then reject anything that escapes the root. Comment that model output is untrusted input.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npx tsx -e "import {readFile} from './server/tools/read-file.ts';
+  readFile.run({path:'../../.env'}).then(console.log)"</span>
+          <span class="result">Returns a refusal. If it prints your API key, the path check is broken — fix before continuing.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="36">
+      <span class="step-id">36</span>
+      <span class="step-body">
+        <span class="step-title">Tool 6 — the unreliable tool</span>
+        <p class="step-what">Write a <code>flaky_service</code> tool that throws on roughly half of calls, controlled by a <code>failRate</code> input so lessons are repeatable. Built to teach error recovery.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npx tsx scripts/try-flaky.ts   # ten calls at failRate 1, then ten at 0</span>
+          <span class="result">Ten failures, then ten successes.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="37">
+      <span class="step-id">37</span>
+      <span class="step-body">
+        <span class="step-title">Register all six and expose them</span>
+        <p class="step-what">Import every tool into the registry array. Add <code>GET /api/tools</code> returning names and descriptions, and list them somewhere in the UI header.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">curl localhost:3000/api/tools</span>
+          <span class="result">Returns six entries, and they render in the UI header.</span></p>
+      </span>
+    </label>
+  </section>
+
+  <!-- ============ PHASE 7 ============ -->
+  <section class="phase" data-phase="7">
+    <div class="phase-head">
+      <span class="phase-num">PHASE 07</span>
+      <h2>The tool-use loop</h2>
+      <span class="phase-count"></span>
+    </div>
+    <p class="phase-note">Write the loop by hand first — the certification tests whether you understand it, not whether you can call a helper.</p>
+
+    <label class="step">
+      <input type="checkbox" data-id="38">
+      <span class="step-id">38</span>
+      <span class="step-body">
+        <span class="step-title">Convert registry entries to API tool definitions</span>
+        <p class="step-what">Write a helper turning each <code>LabTool</code> into <code>{ name, description, input_schema }</code>. Convert the Zod schema to JSON Schema with <code>z.toJSONSchema</code> or a small hand-written mapping.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npx tsx -e "import {toApiTools} from './server/tools/registry.ts';
+  console.log(JSON.stringify(toApiTools(), null, 2))"</span>
+          <span class="result">Six definitions, each with an <code>input_schema</code> of type <code>object</code>.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="39">
+      <span class="step-id">39</span>
+      <span class="step-body">
+        <span class="step-title">Pass tools and detect tool_use</span>
+        <p class="step-what">Send <code>tools</code> on the request. After the response, check for <code>stop_reason === "tool_use"</code> and log which tools were requested, without running them yet.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">Asking "what is 7 times 6?" produces a log row naming <code>calculator</code>.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="40">
+      <span class="step-id">40</span>
+      <span class="step-body">
+        <span class="step-title">Execute one tool and return the result</span>
+        <p class="step-what">Push the assistant turn, run the matching tool, then push a user turn containing a <code>tool_result</code> block with the right <code>tool_use_id</code>. Send again.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">"What is 7 times 6?" ends with Claude replying 42.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="41">
+      <span class="step-id">41</span>
+      <span class="step-body">
+        <span class="step-title">Make it a real loop with a cap</span>
+        <p class="step-what">Wrap the exchange in a <code>while</code> loop that continues while <code>stop_reason</code> is <code>tool_use</code>, capped at 10 iterations. Log the iteration number each pass.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">Ask "what time is it, and what is 12 squared?" — the log shows iteration 1 and iteration 2.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="42">
+      <span class="step-id">42</span>
+      <span class="step-body">
+        <span class="step-title">Handle parallel tool calls</span>
+        <p class="step-what">When one response holds several <code>tool_use</code> blocks, run them with <code>Promise.all</code> and return <strong>all</strong> results in a single user message. Comment why splitting them trains the model out of parallel calls.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">"What time is it in London and Tokyo?" produces two tool rows and a single result message.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="43">
+      <span class="step-id">43</span>
+      <span class="step-body">
+        <span class="step-title">Return tool errors properly</span>
+        <p class="step-what">Catch throws inside tool execution and return a <code>tool_result</code> with <code>is_error: true</code> and the message — never drop the block, or the API rejects the next request.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">Ask Claude to call <code>flaky_service</code> with <code>failRate</code> 1 — it reports the failure rather than hanging.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="44">
+      <span class="step-id">44</span>
+      <span class="step-body">
+        <span class="step-title">Validate tool inputs before running</span>
+        <p class="step-what">Parse each <code>tool_use.input</code> through its Zod schema. On failure return an error result naming the bad field rather than crashing the server.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">Temporarily hard-code a bad input in the loop: a tidy validation error appears, naming the bad field, and the server stays up.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="45">
+      <span class="step-id">45</span>
+      <span class="step-body">
+        <span class="step-title">Show tool activity in the transcript</span>
+        <p class="step-what">Emit <code>tool</code> events carrying name, input, and result. Render them in the transcript as a distinct block, not just in the log panel.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">A tool-using answer shows an inline tool card between the question and the reply.</span></p>
+      </span>
+    </label>
+  </section>
+
+  <!-- ============ PHASE 8 ============ -->
+  <section class="phase" data-phase="8">
+    <div class="phase-head">
+      <span class="phase-num">PHASE 08</span>
+      <h2>Orchestration patterns</h2>
+      <span class="phase-count"></span>
+    </div>
+    <p class="phase-note">Seven patterns behind one interface, so the dropdown can swap them at runtime.</p>
+
+    <label class="step">
+      <input type="checkbox" data-id="46">
+      <span class="step-id">46</span>
+      <span class="step-body">
+        <span class="step-title">Define the pattern interface</span>
+        <p class="step-what">In <code>server/orchestration/types.ts</code>, define <code>Pattern</code>: an id, a display name, a one-paragraph teaching description, and <code>run({ messages, tools, log, emitText })</code>.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npm run typecheck</span>
+          <span class="result">Exits 0, with <code>Pattern</code> exported.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="47">
+      <span class="step-id">47</span>
+      <span class="step-body">
+        <span class="step-title">Pattern 1 — single call</span>
+        <p class="step-what">Move the plain streaming call into <code>patterns/single-call.ts</code>. One request, one response, no tools. The baseline everything else is measured against.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">Chat still works end to end, now routed through the pattern interface.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="48">
+      <span class="step-id">48</span>
+      <span class="step-body">
+        <span class="step-title">Pattern 2 — tool loop</span>
+        <p class="step-what">Move the Phase 7 loop into <code>patterns/tool-loop.ts</code> unchanged behind the same interface.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">Tool questions still resolve correctly through the pattern.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="49">
+      <span class="step-id">49</span>
+      <span class="step-body">
+        <span class="step-title">Add the pattern registry and route plumbing</span>
+        <p class="step-what">Export all patterns from an index keyed by id. Accept a <code>pattern</code> field in the request body, look it up, and fall back to single-call with a warning log.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">curl -N -X POST localhost:3000/api/chat -H "Content-Type: application/json" \
+  -d '{"pattern":"tool-loop","messages":[{"role":"user","content":"7 times 6?"}]}'</span>
+          <span class="result">The tool loop runs. Repeat with <code>"pattern":"nonsense"</code> and a warning is logged instead.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="50">
+      <span class="step-id">50</span>
+      <span class="step-body">
+        <span class="step-title">Pattern 3 — prompt chaining</span>
+        <p class="step-what">Write <code>patterns/chaining.ts</code>: call one (outline), then call two (write from that outline). Log each stage and emit only the final text.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000, pattern set to Prompt chaining</span>
+          <span class="result">"Explain prompt caching" produces two <code>api</code> log rows and one answer.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="51">
+      <span class="step-id">51</span>
+      <span class="step-body">
+        <span class="step-title">Pattern 4 — routing</span>
+        <p class="step-what">Write <code>patterns/routing.ts</code>: a cheap <code>claude-haiku-5-5</code> classifier picks a category, then a specialist system prompt handles it on the main model. Log the chosen route.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000, pattern set to Routing</span>
+          <span class="result">A coding question and a conceptual question log different routes.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="52">
+      <span class="step-id">52</span>
+      <span class="step-body">
+        <span class="step-title">Pattern 5 — parallelisation</span>
+        <p class="step-what">Write <code>patterns/parallel.ts</code>: split the question into 3 fixed aspects, run them with <code>Promise.all</code>, then a final call merges the answers. Log start and finish of each branch.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000, pattern set to Parallelisation</span>
+          <span class="result">Three branches start together and finish out of order.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="53">
+      <span class="step-id">53</span>
+      <span class="step-body">
+        <span class="step-title">Pattern 6 — orchestrator and workers</span>
+        <p class="step-what">Write <code>patterns/orchestrator.ts</code>: a lead call returns a JSON list of subtasks via structured outputs, workers run them in parallel, a synthesiser merges. Log the plan.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000, pattern set to Orchestrator</span>
+          <span class="result">A parsed subtask list appears in the log before any worker starts.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="54">
+      <span class="step-id">54</span>
+      <span class="step-body">
+        <span class="step-title">Pattern 7 — evaluator and optimiser</span>
+        <p class="step-what">Write <code>patterns/evaluator.ts</code>: generate, then have an evaluator return <code>{ pass, feedback }</code>. Loop up to 3 rounds, feeding feedback back in. Log each verdict.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000, pattern set to Evaluator</span>
+          <span class="result">A deliberately vague request shows at least one failed round before passing.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="55">
+      <span class="step-id">55</span>
+      <span class="step-body">
+        <span class="step-title">Add the pattern selector to the UI</span>
+        <p class="step-what">Populate a dropdown from <code>GET /api/patterns</code>, send the selection with every message, and show the pattern's teaching description beneath it.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">Asking the same question under two patterns produces visibly different log sequences.</span></p>
+      </span>
+    </label>
+  </section>
+
+  <!-- ============ PHASE 9 ============ -->
+  <section class="phase" data-phase="9">
+    <div class="phase-head">
+      <span class="phase-num">PHASE 09</span>
+      <h2>Certification topics</h2>
+      <span class="phase-count"></span>
+    </div>
+    <p class="phase-note">The remaining exam surface: server tools, caching, structured outputs, thinking.</p>
+
+    <label class="step">
+      <input type="checkbox" data-id="56">
+      <span class="step-id">56</span>
+      <span class="step-body">
+        <span class="step-title">Add the hosted web_search tool</span>
+        <p class="step-what">Declare <code>{ type: "web_search_20260209", name: "web_search", max_uses: 3 }</code> in the tool-loop pattern behind a UI toggle. It has no <code>run</code> — the server executes it.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000, web search toggled on</span>
+          <span class="result">A current-events question returns an answer, with search result blocks in the log.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="57">
+      <span class="step-id">57</span>
+      <span class="step-body">
+        <span class="step-title">Contrast client and server tool execution</span>
+        <p class="step-what">Tag every tool log row as <code>client</code> or <code>server</code> and add a line in the UI explaining the difference. This distinction is examinable.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">A question needing both a local tool and web search shows both <code>client</code> and <code>server</code> tags.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="58">
+      <span class="step-id">58</span>
+      <span class="step-body">
+        <span class="step-title">Turn on prompt caching</span>
+        <p class="step-what">Mark the system prompt with <code>cache_control: { type: "ephemeral" }</code> as a structured block. Comment that caching is a prefix match and volatile content must come last.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">Send three messages in one conversation: the second and third log a non-zero <code>cache_read_input_tokens</code>.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="59">
+      <span class="step-id">59</span>
+      <span class="step-body">
+        <span class="step-title">Show cache savings in the log</span>
+        <p class="step-what">Extend the usage log row with cache creation and cache read tokens, and the percentage of input served from cache.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">The cache-hit percentage rises across a conversation.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="60">
+      <span class="step-id">60</span>
+      <span class="step-body">
+        <span class="step-title">Demonstrate structured outputs</span>
+        <p class="step-what">Add a small panel that asks Claude to extract <code>{ topic, difficulty, keywords }</code> from the last message using <code>output_config.format</code>, and render the parsed object.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">The panel shows valid JSON matching the schema, on several different questions.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="61">
+      <span class="step-id">61</span>
+      <span class="step-body">
+        <span class="step-title">Add a thinking toggle</span>
+        <p class="step-what">Add a checkbox sending <code>thinking: { type: "adaptive", display: "summarized" }</code>. Render thinking deltas in a muted style above the reply. Comment that the default display is omitted.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000, thinking toggled on</span>
+          <span class="result">A hard question shows a reasoning summary above the reply.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="62">
+      <span class="step-id">62</span>
+      <span class="step-body">
+        <span class="step-title">Add an effort selector</span>
+        <p class="step-what">Add a low / medium / high control setting <code>output_config.effort</code>, and log the chosen level with the resulting output token count so the trade-off is visible.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">The same question at low and at high effort shows clearly different output token counts.</span></p>
+      </span>
+    </label>
+  </section>
+
+  <!-- ============ PHASE 10 ============ -->
+  <section class="phase" data-phase="10">
+    <div class="phase-head">
+      <span class="phase-num">PHASE 10</span>
+      <h2>Teaching polish</h2>
+      <span class="phase-count"></span>
+    </div>
+    <p class="phase-note">Make it usable by someone who did not build it.</p>
+
+    <label class="step">
+      <input type="checkbox" data-id="63">
+      <span class="step-id">63</span>
+      <span class="step-body">
+        <span class="step-title">Audit every file for its header comment</span>
+        <p class="step-what">Walk each source file and confirm it opens with a short plain-language overview: what it does, why it exists, which concept it teaches.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npx tsx scripts/audit-comments.ts</span>
+          <span class="result">Reports every <code>.ts</code> file as having a header comment, with no misses.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="64">
+      <span class="step-id">64</span>
+      <span class="step-body">
+        <span class="step-title">Add a preset questions row</span>
+        <p class="step-what">Add 5 buttons that fill the composer with a question chosen to exercise a specific pattern or tool, so a class can start without typing.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">Each of the five buttons fills the composer, and each one triggers the behaviour it was written for.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="65">
+      <span class="step-id">65</span>
+      <span class="step-body">
+        <span class="step-title">Add clear-chat and export-log buttons</span>
+        <p class="step-what">Clear resets the transcript, history array, and panel. Export copies the log as JSON to the clipboard for discussion after an exercise.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">Clear empties transcript, history and log panel. Export puts valid JSON on the clipboard — paste it somewhere to confirm.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="66">
+      <span class="step-id">66</span>
+      <span class="step-body">
+        <span class="step-title">Show a running cost estimate</span>
+        <p class="step-what">Keep a session total of tokens and multiply by the model's published rates. Display it in the header and comment that rates change.</p>
+        <p class="check"><b>Done check</b>
+          <span class="by-eye">By eye — localhost:3000</span>
+          <span class="result">The cost figure rises after each message and returns to zero on Clear.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="67">
+      <span class="step-id">67</span>
+      <span class="step-body">
+        <span class="step-title">Write the README</span>
+        <p class="step-what">Cover setup, where to put the key, how to run, what each pattern teaches, what each tool demonstrates, and a suggested lesson order.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd"># in a scratch folder, away from this one:
+git clone <your repo> fresh-test && cd fresh-test
+# now follow your own README, start to finish</span>
+          <span class="result">The app runs without you needing any knowledge that is not written down.</span></p>
+      </span>
+    </label>
+
+    <label class="step">
+      <input type="checkbox" data-id="68">
+      <span class="step-id">68</span>
+      <span class="step-body">
+        <span class="step-title">Final pass — typecheck and walkthrough</span>
+        <p class="step-what">Run <code>npm run typecheck</code> clean, then exercise all seven patterns and all six tools once, watching for silent failures in the log.</p>
+        <p class="check"><b>Done check</b>
+          <span class="cmd">npm run typecheck
+# then exercise all seven patterns and all six tools in the UI</span>
+          <span class="result">Zero type errors, and no unexpected <code>error</code> rows anywhere in the walkthrough.</span></p>
+      </span>
+    </label>
+  </section>
+
+  <section class="outro">
+    <h2>If a step stalls</h2>
+    <p>Paste the step back and ask for a split. A step is worth splitting when any of these is true:</p>
+    <ul>
+      <li>It touches more than two files at once.</li>
+      <li>The done-check needs several separate things to be true.</li>
+      <li>You cannot see a result until the whole step is finished.</li>
+      <li>It has run past 30 minutes and is not nearly done.</li>
+    </ul>
+    <p>Steps 41, 53 and 54 are the likeliest candidates — loops and multi-call patterns have the most places to go wrong.</p>
+  </section>
+</div>
+
+<script>
+  // Progress is kept per-step in localStorage so the plan survives weeks of
+  // visits. Every access is guarded: storage can be unavailable or throw.
+  const KEY = "anthropic-chat-lab-plan-v1";
+
+  function loadState() {
+    try {
+      return JSON.parse(localStorage.getItem(KEY) || "{}");
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveState(state) {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(state));
+    } catch (e) {
+      /* storage blocked — the page still works, it just will not remember */
+    }
+  }
+
+  const boxes = Array.from(document.querySelectorAll('.step input[type="checkbox"]'));
+  const doneCount = document.getElementById("done-count");
+  const totalCount = document.getElementById("total-count");
+  const barFill = document.getElementById("bar-fill");
+  let hidingDone = false;
+
+  // Refresh the header counter, the progress bar and each phase's own tally.
+  function refresh() {
+    const done = boxes.filter((b) => b.checked).length;
+    doneCount.textContent = done;
+    totalCount.textContent = boxes.length;
+    barFill.style.width = (done / boxes.length) * 100 + "%";
+
+    document.querySelectorAll(".phase").forEach((phase) => {
+      const inPhase = Array.from(phase.querySelectorAll('input[type="checkbox"]'));
+      const d = inPhase.filter((b) => b.checked).length;
+      phase.querySelector(".phase-count").textContent = d + "/" + inPhase.length;
+    });
+
+    applyHiding();
+  }
+
+  function applyHiding() {
+    boxes.forEach((box) => {
+      box.closest(".step").hidden = hidingDone && box.checked;
+    });
+  }
+
+  // Restore saved ticks, then keep storage in step with every change.
+  const state = loadState();
+  boxes.forEach((box) => {
+    const id = box.dataset.id;
+    if (state[id]) {
+      box.checked = true;
+      box.closest(".step").classList.add("done");
+    }
+    box.addEventListener("change", () => {
+      box.closest(".step").classList.toggle("done", box.checked);
+      const current = loadState();
+      if (box.checked) current[id] = true;
+      else delete current[id];
+      saveState(current);
+      refresh();
+    });
+  });
+
+  document.getElementById("collapse-done").addEventListener("click", (e) => {
+    hidingDone = !hidingDone;
+    e.target.textContent = hidingDone ? "Show completed" : "Hide completed";
+    applyHiding();
+  });
+
+  document.getElementById("reset").addEventListener("click", () => {
+    boxes.forEach((box) => {
+      box.checked = false;
+      box.closest(".step").classList.remove("done");
+    });
+    saveState({});
+    refresh();
+  });
+
+  refresh();
+</script>

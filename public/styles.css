@@ -1,0 +1,3102 @@
+/* ===========================================================================
+   styles.css — the whole appearance of the app.
+
+   Layout concept: a fixed header, a two-column body (conversation left,
+   activity log right), and a composer pinned to the bottom. The log panel is
+   monospaced and visually distinct, because it shows machine activity rather
+   than conversation. Below 800px the columns stack, conversation first.
+
+   The page fills the viewport height and the two columns scroll
+   independently, so a long log never pushes the composer off screen.
+   =========================================================================== */
+
+/* --- Design tokens ---------------------------------------------------------
+   Every colour and size used below is named here. Change a value once and it
+   applies everywhere. The second block redefines the same names for dark
+   mode, so no rule further down needs to know which theme is active. */
+
+:root {
+  /* Surfaces, from the page background up to raised elements */
+  --bg: #f7f6f4;
+  --surface: #ffffff;
+  --surface-sunk: #efedea;
+  --border: #ddd9d4;
+
+  /* Text */
+  --fg: #1d1b19;
+  --fg-dim: #6a6660;
+
+  /* The accent — used for interactive elements and the user's own turns */
+  --accent: #9a4f20;
+  --accent-fg: #ffffff;
+
+  /* Log levels. These carry meaning, so they are separate from the accent:
+     a learner should be able to spot an error row without reading it. */
+  --level-info: #5b6b7c;
+  --level-api: #2f6b4f;
+  --level-tool: #8a5a12;
+  --level-warn: #8a6410;
+  --level-error: #a32b2b;
+
+  /* Type */
+  --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+
+  /* Spacing and shape */
+  --gap: 1rem;
+  --radius: 6px;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161513;
+    --surface: #1f1e1b;
+    --surface-sunk: #262421;
+    --border: #35322d;
+
+    --fg: #eae7e1;
+    --fg-dim: #968f85;
+
+    --accent: #d98a55;
+    --accent-fg: #1a1613;
+
+    --level-info: #8fa3b8;
+    --level-api: #72b894;
+    --level-tool: #d4a356;
+    --level-warn: #d9b45f;
+    --level-error: #e07878;
+
+    color-scheme: dark;
+  }
+}
+
+/* --- Reset ---------------------------------------------------------------- */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  /* Fill the viewport exactly. The two columns scroll inside this, rather
+     than the page itself scrolling — that keeps the composer always reachable
+     and stops a long log from burying it. */
+  height: 100vh;
+  display: grid;
+  /* header spans the width | transcript + composer on the left, log on the
+     right. The composer sits inside the conversation column rather than
+     across the bottom, so the log panel gets the full height beside it. */
+  /* title bar | pane headers | settings bar | content | composer */
+  grid-template-rows: auto auto auto 1fr auto;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.5;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+h1,
+h2 {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* Hides a label visually while leaving it for screen readers. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* --- Header --------------------------------------------------------------- */
+
+#controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem var(--gap);
+  padding: 0.75rem var(--gap);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+#controls h1 {
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+  /* Separates the title from the controls without a literal divider. */
+  margin-right: 0.5rem;
+}
+
+#controls .control {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0; /* let a control shrink rather than push the row wider */
+}
+
+#controls label {
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+
+/* Both selectors share one rule. A native select ignores most styling, so
+   appearance:none strips the OS widget back to a plain box and the arrow
+   is drawn here as a background image — an inline SVG data URI, since the
+   arrow has to follow the theme and a separate file could not.
+
+   currentColor in the SVG makes the arrow inherit the text colour, so it
+   switches with the theme automatically. The %23 is an escaped # — a raw
+   one would be read as a URL fragment. */
+#controls select {
+  appearance: none;
+  font: inherit;
+  font-size: 0.82rem;
+  /* Right padding leaves room for the arrow. */
+  padding: 0.3rem 1.8rem 0.3rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background-color: var(--surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  color: var(--fg);
+  cursor: pointer;
+  /* Stop a long option name stretching the header. */
+  max-width: 16rem;
+  text-overflow: ellipsis;
+}
+
+#controls select:hover {
+  border-color: var(--fg-dim);
+}
+
+/* The dropdown list itself is drawn by the OS and barely stylable, but
+   setting these two stops it rendering as white-on-white in dark mode. */
+#controls select option {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+/* A header control that acts as a shortcut rather than a setting. Styled
+   like the selects beside it so the row reads as one set of controls. */
+/* Status in the header: what is currently set, and how many tools.
+   
+   Reads as a line of text with a subtle underline, not a button —
+   because it reports rather than acts. Clicking it opens the tab
+   holding the real controls. Previously these used .control-button
+   and sat beside Clear looking like peers of it, which is what made
+   the bar feel like four unrelated things in a row. */
+/* Status in the left pane. No padding and no border of its own: the
+   row it sits in owns the height, and a button that adds 6.5px to it
+   is why the two second rows did not line up. The affordance comes
+   from colour and the hover state instead. */
+.header-status {
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+
+.header-status:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.header-status:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* No tools enabled: say so by going dim and dashed rather than by
+   making the reader parse "0/7". */
+.header-status.is-empty {
+  font-style: italic;
+  opacity: 0.75;
+}
+
+/* --- The two columns ------------------------------------------------------ */
+
+/* Transcript and log sit side by side and scroll independently. The 1fr /
+   minmax pairing lets the log keep a usable width without the conversation
+   collapsing on a narrow laptop. */
+#transcript,
+#side-panel {
+  overflow-y: auto;
+  min-width: 0; /* lets long content wrap instead of widening the column */
+  min-height: 0; /* lets the grid row actually constrain the height */
+}
+
+/* Three columns: conversation, a drag handle, the log panel.
+
+   The log's width is a custom property rather than a fixed value, so the
+   resizer can change it by writing one inline style on <body>. Everything
+   else in the layout follows from it automatically. */
+body {
+  --log-width: 28rem;
+  grid-template-columns: 1fr auto var(--log-width);
+}
+
+/* Only the header spans the full width. */
+#controls {
+  grid-column: 1 / -1;
+}
+
+/* The conversation column, top to bottom: its header, the settings
+   summary, the transcript, the composer. The header sits on the same
+   row as the log's header opposite, so the two panes start level. */
+#transcript-header {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+#transcript-bar {
+  grid-column: 1;
+  grid-row: 3;
+}
+
+#transcript {
+  grid-column: 1;
+  grid-row: 4;
+}
+
+#composer {
+  grid-column: 1;
+  grid-row: 5;
+}
+
+/* The resizer and the log run the full height of the three body rows,
+   so the panel is as tall as the bar, transcript and composer
+   together. */
+#column-resizer {
+  grid-column: 2;
+  grid-row: 2 / 6;
+}
+
+#side-panel {
+  grid-column: 3;
+  grid-row: 2 / 6;
+}
+
+/* --- Column resizer ------------------------------------------------------- */
+
+/* Visually a hairline, but a comfortable target to grab. The padding does
+   the work: the element is 9px wide while its visible border is 1px. */
+#column-resizer {
+  width: 9px;
+  margin: 0 -4px; /* pull the extra width back so it does not add a gap */
+  z-index: 2;
+  cursor: col-resize;
+  background: transparent;
+  border-left: 1px solid var(--border);
+  /* The hit area is wider than the line, so leave the line where the eye
+     expects it rather than centring the padding. */
+  background-clip: padding-box;
+}
+
+#column-resizer:hover,
+#column-resizer:focus-visible,
+#column-resizer.dragging {
+  border-left-color: var(--accent);
+  box-shadow: inset 1px 0 0 var(--accent); /* a second pixel, so it reads */
+}
+
+/* While dragging, stop the pointer selecting text in either column. */
+body.resizing {
+  user-select: none;
+  cursor: col-resize;
+}
+
+/* --- Transcript ----------------------------------------------------------- */
+
+#transcript {
+  padding: var(--gap);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Nothing in the transcript shrinks to fit the pane.
+   
+   A flex item defaults to flex-shrink: 1, so once the conversation
+   is taller than the column the browser squeezes every child to
+   make it fit rather than letting the pane scroll. On a message
+   card, which clips its overflow, that silently crushed replies to
+   a single clipped line.
+   
+   Set on the container rather than on each child: every one of the
+   seven things that can appear here had the same latent bug, and
+   anything added later would inherit it too. */
+#transcript > * {
+  flex-shrink: 0;
+}
+
+/* Message turns. Added by app.ts from step 16; styled here so the shape is
+   settled before anything populates it. */
+/* One message and everything belonging to it: the text, what it cost,
+   how to inspect it, and anything derived from it.
+
+   The block owns the alignment and, for an assistant turn, the border
+   as well — so the footer bar sits INSIDE the message's outline
+   rather than floating beneath it. That was the visible fault: the
+   cost line and the "View raw" button looked like separate debris
+   under each reply instead of part of it. */
+.message {
+  display: flex;
+  flex-direction: column;
+  max-width: 48rem;
+  min-width: 0;
+}
+
+.message-user {
+  align-self: flex-end;
+  align-items: flex-end;
+  gap: 0.35rem;
+}
+
+/* The assistant's message is the bordered card: text, then its meta
+   bar, in one outline. */
+.message-assistant {
+  align-self: flex-start;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.turn {
+  padding: 0.65rem 0.85rem;
+  white-space: pre-wrap; /* preserve the model's own line breaks */
+  overflow-wrap: anywhere; /* long URLs and tokens must not widen the column */
+  min-width: 0;
+}
+
+/* The user's turn is still a bubble: it is short, and the contrast is
+   what separates the two sides of the conversation. */
+.turn-user {
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+/* The assistant's text carries no border of its own — the block has
+   it. Two borders is what made a reply look boxed twice. */
+.turn-assistant {
+  background: transparent;
+}
+
+/* The footer bar: everything about this message, in one strip.
+   Separated from the text by a rule and a slightly sunk background so
+   it reads as apparatus rather than content. */
+.turn-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.9rem;
+  padding: 0.4rem 0.85rem;
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunk);
+}
+
+.turn-stats {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Tool cards ----------------------------------------------------------- */
+
+/* Sits between turns, deliberately narrower and plainer than a message
+   bubble. It is machinery, not conversation: the eye should register it
+   as "something happened here" and move on, unless it wants the detail. */
+.tool-card {
+  align-self: stretch;
+  max-width: 48rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--level-tool);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--level-tool) 6%, var(--surface));
+  padding: 0.5rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+.tool-card-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.tool-card-status {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  background: var(--level-tool);
+  color: var(--surface);
+}
+
+.tool-card.is-done .tool-card-status {
+  background: var(--level-api);
+}
+
+.tool-card.is-error .tool-card-status {
+  background: var(--level-error);
+}
+
+.tool-card.is-error {
+  border-left-color: var(--level-error);
+  background: color-mix(in srgb, var(--level-error) 7%, var(--surface));
+}
+
+/* A running tool pulses gently, so a slow one looks busy rather than
+   stuck. Respects a reduced-motion preference. */
+.tool-card.is-running .tool-card-status {
+  animation: tool-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes tool-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tool-card.is-running .tool-card-status {
+    animation: none;
+  }
+}
+
+.tool-card-name {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.tool-card-meta {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.tool-card-args {
+  margin: 0.4rem 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--fg-dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tool-card-result {
+  margin-top: 0.45rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.4rem;
+}
+
+.tool-card-result > summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--fg);
+  list-style: none;
+}
+
+.tool-card-result > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-card-result > summary::before {
+  content: "▸ ";
+  color: var(--fg-dim);
+}
+
+.tool-card-result[open] > summary::before {
+  content: "▾ ";
+}
+
+.tool-card-result > pre {
+  margin: 0.4rem 0 0;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius);
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  line-height: 1.5;
+  /* Wraps rather than scrolls — a nested scroll container inside the
+     transcript would steal the wheel, as the log detail did. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* --- Rendered / raw toggle ------------------------------------------------ */
+
+/* Sits at the end of each assistant turn. Quiet until hovered: it is a
+   tool for inspecting the reply, not part of reading it. */
+/* A control in the message's footer bar. It used to be a full-width
+   button inside the bubble, which read as the last line of the reply. */
+.view-toggle {
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.view-toggle:hover {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.view-toggle:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* A turn showing raw source. The dashed edge marks it as a different
+   view of the same thing rather than a different kind of message. */
+.turn.is-raw {
+  background: var(--surface-sunk);
+}
+
+.raw-source {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  /* Wrap rather than scroll: a second scroll container inside the
+     transcript would steal the wheel, the way the log detail did. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--fg);
+}
+
+/* --- Rendered Markdown inside a turn -------------------------------------- */
+
+/* The turn sets white-space: pre-wrap so raw text keeps its line breaks
+   while streaming. Once rendered, the block elements handle spacing
+   themselves and pre-wrap would double every gap. */
+.turn:has(.md-p),
+.turn:has(.md-heading),
+.turn:has(.md-list),
+.turn:has(.md-code-block) {
+  white-space: normal;
+}
+
+.md-p {
+  margin: 0 0 0.7rem;
+}
+
+.md-p:last-child {
+  margin-bottom: 0;
+}
+
+.md-heading {
+  margin: 1rem 0 0.4rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.md-heading:first-child {
+  margin-top: 0;
+}
+
+/* The renderer offsets levels by two, so a reply's "#" becomes h3. These
+   stay close to body size: a chat reply is not a document, and a 2rem
+   heading inside a message bubble looks absurd. */
+h3.md-heading { font-size: 1.05rem; }
+h4.md-heading { font-size: 0.97rem; }
+h5.md-heading,
+h6.md-heading {
+  font-size: 0.92rem;
+  color: var(--fg-dim);
+}
+
+.md-list {
+  margin: 0 0 0.7rem;
+  padding-left: 1.3rem;
+}
+
+.md-list:last-child {
+  margin-bottom: 0;
+}
+
+.md-list li {
+  margin-bottom: 0.25rem;
+}
+
+/* A nested list sits tighter against its parent item. */
+.md-list .md-list {
+  margin: 0.25rem 0 0;
+}
+
+.turn blockquote {
+  margin: 0 0 0.7rem;
+  padding: 0.1rem 0 0.1rem 0.8rem;
+  border-left: 3px solid var(--border);
+  color: var(--fg-dim);
+}
+
+.turn hr {
+  margin: 1rem 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+/* Inline code. The tinted background is what separates `web_search` from
+   the prose around it — without it, backticked API names read as ordinary
+   words and the distinction Claude was making is lost. */
+.md-code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  padding: 0.08em 0.32em;
+  border-radius: 3px;
+  background: var(--surface-sunk);
+  border: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+/* A user turn sits on the accent colour, where the normal code background
+   would disappear. */
+.turn-user .md-code {
+  background: rgb(255 255 255 / 0.18);
+  border-color: rgb(255 255 255 / 0.25);
+}
+
+/* Fenced code blocks. */
+.md-code-block {
+  position: relative;
+  margin: 0 0 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunk);
+  overflow: hidden;
+}
+
+.md-code-block:last-child {
+  margin-bottom: 0;
+}
+
+.md-code-lang {
+  display: block;
+  padding: 0.3rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+}
+
+.md-code-block pre {
+  margin: 0;
+  padding: 0.7rem;
+  overflow-x: auto; /* long lines scroll here, not on the page */
+}
+
+.md-code-block code {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+/* A failure, not a reply. Distinct enough that nobody mistakes it for
+   something Claude said. */
+.turn-error {
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  background: color-mix(in srgb, var(--level-error) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--level-error) 40%, transparent);
+  color: var(--fg);
+}
+
+.turn-error > strong {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--level-error);
+}
+
+/* --- Log panel ------------------------------------------------------------ */
+
+/* The side panel is itself a grid: a fixed tab strip above, and one
+   scrolling panel filling the rest. The aside does not scroll — each tab
+   panel scrolls independently, so switching tabs does not lose your place
+   in the other one. */
+/* The panel owns its internals: header, filters, then the scrolling
+   list. Rows rather than fixed placements, so adding something to the
+   panel does not mean editing the page grid. */
+#side-panel {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface-sunk);
+  border-left: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+.tab-panel {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+#log-list {
+  margin: 0;
+  padding: 0;
+  list-style: none; /* the visual order is enough; numbers would add noise */
+}
+
+/* Matches rows at either level: directly in the list, or inside a
+   request group. The child combinator was correct before grouping
+   existed and silently stopped matching when rows moved one level
+   deeper — the classic cost of a selector that encodes structure. */
+/* The hidden attribute has to beat the display rules below.
+
+   A browser hides [hidden] elements with `display: none` from its own
+   stylesheet, and ANY author rule that sets display overrides it —
+   .log-row sets `display: grid`. So `row.hidden = true` set the
+   attribute and changed nothing on screen, which made the level
+   filters look broken.
+
+   !important because a bare attribute selector loses to the more
+   specific grid rule. The same applies to .log-group, which is hidden
+   when every row inside it is. */
+#log-list li.log-row[hidden],
+#log-list .log-group[hidden] {
+  display: none !important;
+}
+
+#log-list li.log-row {
+  /* The left padding is reduced by the stripe's width, so text stays on
+     the same vertical line it would without one. */
+  padding: 0.35rem var(--gap) 0.35rem calc(var(--gap) - 3px);
+  border-bottom: 1px solid var(--border);
+  /* The stripe. Transparent by default and coloured per level below —
+     declaring it here rather than only on the coloured rows keeps every
+     row the same width, so text does not shift by 3px between types. */
+  border-left: 3px solid transparent;
+  overflow-wrap: anywhere;
+}
+
+/* The empty state. Given real padding so it does not sit flush against
+   the actions bar above it — a single line of italic text jammed under
+   a border reads as a rendering fault rather than a deliberate message. */
+.log-empty {
+  padding: 1.2rem var(--gap);
+  color: var(--fg-dim);
+  font-family: var(--font-ui);
+  font-style: italic;
+  text-align: center;
+}
+
+/* A row is three columns: time, level tag, label. Grid rather than inline
+   elements, so that a long label wraps in its own column instead of running
+   back underneath the timestamp. */
+/* A row is a marker column and then everything else, stacked.
+
+   The previous layout gave time, direction and level a reserved column
+   each -- about 9.4rem before the label even started, on every line.
+   That is a lot of width to spend on three things you read once a
+   minute, in a panel whose job is showing request and response bodies.
+
+   Now only the direction marker holds a column. The label gets the
+   full remaining width, the timestamp moves to the right margin where
+   it can be found but not in the way, and the level is carried by the
+   stripe and a small tag inside the meta line. */
+.log-row {
+  display: grid;
+  grid-template-columns: 1.1rem 1fr;
+  column-gap: 0.5rem;
+  row-gap: 0.15rem;
+  align-items: baseline;
+
+  /* Where the text column starts, for the rows that span both. */
+  --log-detail-indent: 1.6rem;
+}
+
+/* Title line: the label, with the time pushed to the far right. */
+.log-headline {
+  grid-column: 2;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+/* The direction marker. Larger than the surrounding text because it is
+   the thing the eye should find first when scanning the panel. */
+/* The only thing still holding a column of its own: whether data
+   crossed a boundary, and which way, is the question this panel is
+   scanned for. */
+.log-arrow {
+  grid-column: 1;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  text-align: center;
+  cursor: help;
+}
+
+/* Level tags. Colour is a shortcut, not the only signal — the tag always
+   carries its name in text, so the meaning survives a colourblind reader or
+   a projector with poor contrast. */
+/* Now inline in the meta line rather than holding its own column.
+   Colour is still never the only signal: the tag spells the level out
+   in text for anyone who cannot rely on the stripe. */
+.log-level {
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--level-info);
+}
+
+.log-label {
+  min-width: 0; /* let long labels wrap rather than widen the panel */
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+/* --- Expandable detail ---------------------------------------------------- */
+
+/* The expander spans the whole row rather than sitting in the label's
+   column.
+
+   The summary line is short and reads fine either way, but the JSON
+   underneath is the reason this panel exists, and indenting it past
+   the time, arrow and level columns costs roughly 7rem of every line.
+   On a request body that is two or three extra wraps per line.
+
+   The summary keeps the label's indent so the row still reads as a
+   column; only the payload breaks out. */
+.log-detail {
+  grid-column: 1 / -1;
+  margin-top: 0.15rem;
+}
+
+.log-detail > summary {
+  padding-left: var(--log-detail-indent);
+}
+
+.log-detail > summary {
+  cursor: pointer;
+  color: var(--fg-dim);
+  font-size: 0.72rem;
+  /* The default triangle is tiny and inconsistent between browsers; this
+     replaces it with one drawn below. */
+  list-style: none;
+}
+
+/* Safari needs this separately to hide its own marker. */
+.log-detail > summary::-webkit-details-marker {
+  display: none;
+}
+
+.log-detail > summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 1em;
+  color: var(--fg-dim);
+}
+
+.log-detail[open] > summary::before {
+  content: "▾";
+}
+
+/* The payload size, beside the key preview. Dimmed: it is a warning
+   about weight, not part of what the row says. */
+.detail-size {
+  margin-left: 0.5rem;
+  padding: 0.02rem 0.3rem;
+  border-radius: 3px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 0.66rem;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.log-detail > summary:hover {
+  color: var(--fg);
+}
+
+/* The data itself.
+
+   Deliberately NOT scrollable. An earlier version capped the height and
+   set overflow:auto, which produced a scroll container nested inside the
+   panel's own. The wheel then went to whichever one the pointer happened
+   to be over, so scrolling the log did nothing whenever the cursor sat
+   on an expanded detail — the panel's scrollbar moved but the content
+   did not.
+
+   Nesting scrollers is almost always worth avoiding. Here it bought
+   nothing: the detail is already behind a click, so someone who opened
+   it wants to read it, and capping the height just adds a second
+   interaction to do so. The row grows and the panel scrolls, which is
+   one scroll container and one mental model.
+
+   Horizontal overflow is handled by wrapping rather than scrolling, for
+   the same reason. */
+/* The payload. Full width of the panel now, with only a hairline of
+   indent, because this is what the panel is for. */
+.log-detail > pre {
+  margin: 0.3rem 0 0.1rem;
+  padding: 0.6rem 0.7rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.72rem;
+  /* Tighter than prose: this is scanned structurally — matching
+     brackets, finding a key — not read line by line. */
+  line-height: 1.4;
+  /* pre does not wrap by default; without these a single long line sets
+     the width of the whole panel. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* Tab stops at two spaces rather than eight, so a nested JSON body
+     does not lose half its width to indentation. */
+  tab-size: 2;
+}
+
+/* Each level gets a coloured stripe down the left edge and a matching
+   tag. Two signals, one of which survives peripheral vision: scanning a
+   long log for "where did the errors happen" reads the stripe, not the
+   four-letter tag.
+
+   The stripe is deliberately the only strong colour. Tinting whole rows
+   was the alternative and it turns the panel into a stack of coloured
+   bands — the sequence of events stops being the thing you see first.
+
+   Colour is never the only signal: every row still spells its level out
+   in text, which is what a colourblind reader or a washed-out projector
+   relies on. */
+
+/* Each level gets a tinted background, a coloured stripe down the left
+   edge, and a matching tag. Three signals, because the panel is scanned
+   rather than read: "where did the errors happen" should be answerable
+   without reading a single word.
+
+   Note the selectors are scoped under #log-list. The level classes sit on
+   the same <li> as the rule setting the default border, and that rule is
+   `#log-list > li` — an ID selector, specificity 0-1-1-1. A bare
+   `.log-api` is 0-0-1-0 and loses regardless of source order, so an
+   earlier version of this block silently did nothing at all. Specificity
+   decides, not position in the file.
+
+   Colour is never the only signal: every row still spells its level out
+   in text, which is what a colourblind reader or a washed-out projector
+   relies on. */
+
+/* --- Direction: the primary signal ---------------------------------------
+
+   Four kinds of row, distinguished by which way the data moved:
+
+     →  out    this app sent a request to Anthropic
+     ←  in     Anthropic sent a response back
+     ⤷  call   this server is running a tool function
+     ⤶  back   that tool returned a value
+     ·  none   internal note; nothing crossed a boundary
+
+   Direction drives the background tint and the stripe, because it is
+   what makes a conversation legible: a glance down the column shows
+   request, response, call, return, request — the shape of the exchange,
+   before any word is read.
+
+   Level keeps the tag colour, so the two dimensions stay independent.
+   An error is red whichever way it was travelling.
+
+   Selectors are scoped under #log-list: the base rule is
+   `#log-list > li` (an ID selector), and a bare class would lose to it
+   regardless of source order. */
+
+/* Outbound — warm. Something left this machine. */
+#log-list li.dir-out {
+  border-left-color: var(--level-api);
+  background: color-mix(in srgb, var(--level-api) 10%, transparent);
+}
+.dir-out .log-arrow {
+  color: var(--level-api);
+}
+
+/* Inbound — cool. Something arrived. */
+#log-list li.dir-in {
+  border-left-color: var(--level-info);
+  background: color-mix(in srgb, var(--level-info) 12%, transparent);
+}
+.dir-in .log-arrow {
+  color: var(--level-info);
+}
+
+/* A function call. Indented, because it happens inside the turn that
+   asked for it rather than alongside it. */
+#log-list li.dir-call {
+  border-left-color: var(--level-tool);
+  background: color-mix(in srgb, var(--level-tool) 9%, transparent);
+  padding-left: calc(var(--gap) + 0.6rem);
+}
+.dir-call .log-arrow {
+  color: var(--level-tool);
+}
+
+/* Its return value. Indented to match, slightly stronger so the pair
+   reads as call-then-return. */
+#log-list li.dir-back {
+  border-left-color: var(--level-tool);
+  background: color-mix(in srgb, var(--level-tool) 16%, transparent);
+  padding-left: calc(var(--gap) + 0.6rem);
+}
+.dir-back .log-arrow {
+  color: var(--level-tool);
+}
+
+/* Internal notes recede: no tint, faded marker. They are context, not
+   part of the exchange. */
+#log-list li.dir-none {
+  border-left-color: color-mix(in srgb, var(--fg-dim) 35%, transparent);
+}
+.dir-none .log-arrow {
+  color: var(--fg-dim);
+  opacity: 0.5;
+}
+
+/* --- Level: the secondary signal ----------------------------------------- */
+
+.log-info .log-level {
+  color: var(--level-info);
+}
+.log-api .log-level {
+  color: var(--level-api);
+}
+.log-tool .log-level {
+  color: var(--level-tool);
+}
+.log-warn .log-level {
+  color: var(--level-warn);
+}
+.log-error .log-level {
+  color: var(--level-error);
+}
+
+/* A warning tints the row, but less than an error does. Nothing failed:
+   the run proceeded as designed and this is a note about it. Five of
+   the seven patterns do not use tools, and all six are enabled by
+   default — so this row appears on most runs, and red that appears
+   every time stops being read. */
+#log-list li.log-warn {
+  border-left-color: var(--level-warn);
+  background: color-mix(in srgb, var(--level-warn) 10%, transparent);
+}
+.log-warn .log-time {
+  color: color-mix(in srgb, var(--level-warn) 60%, var(--fg-dim));
+}
+
+/* An error overrides the direction tint. Whatever direction it was
+   travelling, a failure is the thing to notice. */
+#log-list li.log-error {
+  border-left-color: var(--level-error);
+  background: color-mix(in srgb, var(--level-error) 14%, transparent);
+}
+.log-error .log-arrow {
+  color: var(--level-error);
+}
+
+.log-error .log-time {
+  color: color-mix(in srgb, var(--level-error) 60%, var(--fg-dim));
+}
+
+/* A tool result, as opposed to a tool request. Both carry the tool level,
+   so without this the two halves of an exchange look identical and the
+   sequence is hard to follow. A faint tint marks the rows where data came
+   back; the arrow in the label says which direction. */
+
+
+/* The row that closes a turn ("Finished after 3 iteration(s)"). Given a
+   little weight and a rule above it, so a long log reads as a series of
+   turns rather than one undifferentiated stream — the single most useful
+   thing when comparing two orchestration patterns side by side. */
+.log-row.is-summary {
+  border-top: 1px solid var(--border);
+  margin-top: 0.15rem;
+}
+
+.log-row.is-summary .log-label {
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/* Pushed to the right of the headline. Still monospaced and still
+   tabular, so the column of times reads straight down the edge, but
+   no longer the first thing on every line. */
+.log-time {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Tools tab ------------------------------------------------------------ */
+
+.panel-intro {
+  margin: 0;
+  padding: 0.7rem var(--gap);
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--fg-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+#tool-actions {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.5rem var(--gap);
+  border-bottom: 1px solid var(--border);
+}
+
+/* A button that reads as a link: used for secondary actions where a real
+   button would compete with Send for attention. */
+.link-button {
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.link-button:hover {
+  filter: brightness(1.15);
+}
+
+#tool-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+#tool-list > li {
+  border-bottom: 1px solid var(--border);
+}
+
+.tool-empty {
+  padding: 0.7rem var(--gap);
+  font-family: var(--font-ui);
+  font-style: italic;
+  color: var(--fg-dim);
+}
+
+/* The whole row is the label, so clicking anywhere on it toggles the tool
+   rather than requiring a hit on the 16px checkbox. */
+.tool-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.1rem 0.6rem;
+  padding: 0.6rem var(--gap);
+  cursor: pointer;
+}
+
+.tool-row:hover {
+  background: var(--bg);
+}
+
+/* Sits on the first row only, beside the tool name. Spanning both rows
+   would centre it against the whole block, which reads as belonging to
+   the description rather than to the tool. */
+.tool-row > input[type="checkbox"] {
+  grid-row: 1;
+  /* Nudged down to sit on the name's optical centre rather than its box
+     top: a checkbox is smaller than the line it sits in. */
+  margin: 0.12rem 0 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+
+.tool-name {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--fg);
+}
+
+/* Second column, so it sits under the name rather than under the
+   checkbox — the name and its description read as one block. */
+.tool-description {
+  grid-column: 2;
+  font-family: var(--font-ui);
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--fg-dim);
+}
+
+/* An unticked tool is dimmed, so the available set is readable at a glance. */
+.tool-row:has(input:not(:checked)) .tool-name,
+.tool-row:has(input:not(:checked)) .tool-description {
+  opacity: 0.45;
+}
+
+/* Marks a tool Anthropic runs rather than this server — see step 57. */
+.tool-badge {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.02rem 0.3rem;
+  border-radius: 3px;
+  background: var(--level-api);
+  color: var(--surface);
+  font-family: var(--font-ui);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  vertical-align: 1px;
+}
+
+/* --- Composer ------------------------------------------------------------- */
+
+/* Sits directly under the transcript, inside the conversation column.
+   The background matches the transcript rather than the header, so the
+   two read as one panel with a divider rather than two separate areas. */
+#composer {
+  padding: 0.75rem var(--gap);
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+
+/* align-items: stretch, so the button matches the textarea's height
+   however tall it has grown. The earlier flex-end pinned the button to
+   the bottom and left it looking like an afterthought beside a
+   three-row box. */
+#composer-form {
+  display: flex;
+  gap: 0.6rem;
+  align-items: stretch;
+}
+
+#message-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  /* No resize grabber. The box is three rows, which suits a chat
+     composer, and the corner handle invites a fiddle that only makes
+     the layout worse — the panel beside it does not reflow. */
+  resize: none;
+}
+
+#send-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  font: inherit;
+  font-weight: 600;
+  padding: 0 1.2rem;
+  border: none;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-fg);
+  cursor: pointer;
+}
+
+/* The keyboard hint under the label. Quiet, because it is a reminder
+   rather than part of the button's name. */
+.send-hint {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+}
+
+#send-button:hover {
+  filter: brightness(1.08);
+}
+
+#send-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Keyboard focus must stay visible — people navigate this with Tab. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- Narrow screens ------------------------------------------------------- */
+
+/* Below 800px there is no room for two columns, so they stack. Conversation
+   comes first: the log is supporting material, and on a phone it belongs
+   under the thing it explains. */
+@media (max-width: 800px) {
+  /* One column, four rows: header, transcript, composer, log.
+     The composer stays directly under the conversation it belongs to,
+     with the log beneath both. */
+  body {
+    grid-template-columns: 1fr;
+    /* title | pane header | settings bar | transcript | composer | log */
+    grid-template-rows: auto auto auto 1fr auto auto;
+  }
+
+  #transcript-header {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  #transcript-bar {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  /* Undo the explicit placements from the two-column layout — otherwise
+     the log would still be trying to sit in a third column that no longer
+     exists. */
+  #transcript {
+    grid-column: 1;
+    grid-row: 4;
+  }
+
+  #composer {
+    grid-column: 1;
+    grid-row: 5;
+  }
+
+  #side-panel {
+    grid-column: 1;
+    grid-row: 6;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    max-height: 40vh; /* keep the composer reachable */
+  }
+
+  /* Stacked columns cannot be resized horizontally, so the handle has no
+     meaning here. Hidden from assistive technology too, not just visually. */
+  #column-resizer {
+    display: none;
+  }
+}
+
+/* --- Request groups -------------------------------------------------------
+   
+   Rows are grouped under the request that caused them. One turn can
+   produce fifteen rows across three round trips, and a flat list hides
+   the most important fact about it: how many times this app actually
+   talked to Anthropic. */
+
+.log-group {
+  border-bottom: 1px solid var(--border);
+}
+
+.log-group-header {
+  position: sticky;
+  /* Offset by the height of the actions bar above, which is sticky
+     too. Flush to the top, this would slide over Clear as you scroll. */
+  top: 2rem;
+  z-index: 1;
+  padding: 0.3rem var(--gap);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-ui);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-dim);
+}
+
+.log-group-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The group already draws a boundary, so its last row should not add
+   another one. */
+.log-group-rows > li:last-child {
+  border-bottom: none;
+}
+
+/* --- Causation ------------------------------------------------------------
+   
+   The second line of a row: who caused it and why. This is the part that
+   turns a list of events into an explanation — "calling calculator" says
+   what happened, "claude · Claude's response asked for calculator" says
+   why it happened. */
+
+/* The meta line: level, actor, and why this happened. Sits under the
+   label in the same column, and now gets the full width rather than
+   the leftovers after three metadata columns -- which is what made
+   these sentences wrap three times. */
+.log-because {
+  grid-column: 2;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.45rem;
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--fg-dim);
+}
+
+/* Which of the four actors set this in motion. Colour-coded because the
+   distinction between "Claude asked for this" and "our code did this" is
+   the single most misunderstood thing about tool use. */
+.log-actor {
+  flex-shrink: 0;
+  padding: 0.02rem 0.3rem;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.actor-user {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+}
+
+.actor-app {
+  background: color-mix(in srgb, var(--fg-dim) 18%, transparent);
+  color: var(--fg-dim);
+}
+
+.actor-claude {
+  background: color-mix(in srgb, var(--level-info) 22%, transparent);
+  color: var(--level-info);
+}
+
+.actor-tool {
+  background: color-mix(in srgb, var(--level-tool) 22%, transparent);
+  color: var(--level-tool);
+}
+
+/* --- Settings tab ---------------------------------------------------------
+   
+   The controls moved here from the header, which had no room to say what
+   any of them did. A dropdown labelled "Tool choice" with a one-line
+   caption cannot explain forced tool use; a panel can. */
+
+.setting {
+  padding: 0.85rem var(--gap);
+  border-bottom: 1px solid var(--border);
+}
+
+.setting > label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/* Full width here, unlike in the header where space was tight. */
+.setting > select {
+  appearance: none;
+  width: 100%;
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.35rem 1.8rem 0.35rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background-color: var(--surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.setting > select:hover {
+  border-color: var(--fg-dim);
+}
+
+.setting > select option {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+/* What the current selection does. Changes with the dropdown. */
+.setting-help {
+  margin: 0.4rem 0 0;
+  font-family: var(--font-ui);
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--fg);
+}
+
+/* What the setting IS — the part that does not change with the
+   selection. Separated from the help text because one is about the
+   choice and the other about the mechanism. */
+.setting-note {
+  margin: 0.4rem 0 0;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--border);
+  font-family: var(--font-ui);
+  font-size: 0.73rem;
+  line-height: 1.5;
+  color: var(--fg-dim);
+}
+
+.setting-note code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  padding: 0.04em 0.26em;
+  border-radius: 3px;
+  background: var(--bg);
+}
+
+/* --- Log actions bar ------------------------------------------------------
+   
+   Sticky above the rows, so Clear stays reachable however long the log
+   gets — scrolling to the top to find it would be the wrong trade for a
+   panel whose whole job is to accumulate. */
+
+/* Sticky is the log's own requirement: the filters stay reachable
+   however far the list scrolls. The box itself comes from the shared
+   rule above. */
+#log-actions {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+/* The filters are all this row holds now — the cost and Clear moved
+   up to the pane header. */
+#log-actions > #log-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.75rem;
+  flex: 1;
+}
+
+/* What the session has cost. Sits opposite Clear, because the two
+   belong together: clearing the log resets the figure. */
+#log-cost {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+
+
+/* --- Two-part setting help ------------------------------------------------
+   
+   What the option is for, then what it does on the wire. Styled
+   differently because they answer different questions and running them
+   together produces a paragraph nobody finishes. */
+
+/* The side panel is monospace for log rows; prose inside it is not.
+   Without an explicit family these inherit it and read as code. */
+.setting-what {
+  margin: 0.4rem 0 0;
+  font-family: var(--font-ui);
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--fg);
+}
+
+.setting-effect {
+  margin: 0.4rem 0 0;
+  font-family: var(--font-ui);
+  padding: 0.4rem 0.55rem;
+  border-radius: var(--radius);
+  background: var(--bg);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--fg-dim);
+}
+
+/* Monospace fragments inside the effect text — field names, JSON. */
+.setting-effect code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+/* --- Tables in a reply ----------------------------------------------------
+   
+   Claude reaches for a table whenever it is comparing things, which in
+   this app is often — model prices, error classes, what each pattern
+   costs. Rendering them as raw pipes made those answers harder to read
+   than prose would have been. */
+
+/* The scroll container. A six-column table will not fit a chat bubble,
+   and the alternative to scrolling it here is the whole page scrolling
+   sideways — which breaks the two-column layout. */
+.md-table-wrap {
+  margin: 0 0 0.7rem;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.md-table-wrap:last-child {
+  margin-bottom: 0;
+}
+
+.md-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.82rem;
+}
+
+.md-table th,
+.md-table td {
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.md-table th {
+  background: var(--surface-sunk);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* No rule under the final row: the container's border already closes
+   the table, and a second line there reads as an empty row. */
+.md-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Banded rows. Subtle enough not to compete with the text, strong
+   enough to follow a row across six columns. */
+.md-table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+}
+
+/* Figures line up when they are in a column together. */
+.md-table td {
+  font-variant-numeric: tabular-nums;
+}
+
+/* A table inside a user turn sits on the accent colour, where the
+   surface-coloured header would vanish. */
+.turn-user .md-table th {
+  background: rgb(255 255 255 / 0.15);
+}
+
+.turn-user .md-table th,
+.turn-user .md-table td {
+  border-bottom-color: rgb(255 255 255 / 0.2);
+}
+
+/* --- Pattern guidance and comparison -------------------------------------- */
+
+/* When to reach for this pattern. Sits between what it does and what it
+   cost, because that is the order the questions arrive in. */
+.setting-when {
+  margin: 0.4rem 0 0;
+  font-family: var(--font-ui);
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--accent);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--fg);
+}
+
+.pattern-table-wrap {
+  margin-top: 0.6rem;
+}
+
+.pattern-table-wrap > summary {
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 0.74rem;
+  color: var(--accent);
+  list-style: none;
+}
+
+.pattern-table-wrap > summary::-webkit-details-marker {
+  display: none;
+}
+
+.pattern-table-wrap > summary::before {
+  content: "▸ ";
+}
+
+.pattern-table-wrap[open] > summary::before {
+  content: "▾ ";
+}
+
+.pattern-table {
+  width: 100%;
+  margin-top: 0.5rem;
+  border-collapse: collapse;
+  font-size: 0.74rem;
+}
+
+.pattern-table th,
+.pattern-table td {
+  padding: 0.3rem 0.4rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.pattern-table th {
+  font-family: var(--font-ui);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+}
+
+.pattern-table td:nth-child(2),
+.pattern-table td:nth-child(3) {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* The pattern currently selected. */
+.pattern-table tr.is-current td {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-weight: 600;
+}
+
+/* --- Example prompts ------------------------------------------------------
+   
+   Each pattern needs a different shape of question to show what it
+   does. A pattern tried with the wrong question looks identical to a
+   single call, which teaches the opposite of what it should — so the
+   examples are part of the explanation, not a convenience. */
+
+.pattern-examples {
+  margin-top: 0.7rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+}
+
+.examples-heading {
+  margin: 0 0 0.4rem;
+  font-family: var(--font-ui);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-dim);
+}
+
+.example {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.2rem 0.4rem;
+  margin-bottom: 0.6rem;
+}
+
+.example:last-child {
+  margin-bottom: 0;
+}
+
+/* The prompt itself, as a button. Left-aligned and wrapping, because
+   it is a sentence rather than a label. */
+.example-prompt {
+  grid-column: 1;
+  font-family: var(--font-ui);
+  font-size: 0.76rem;
+  line-height: 1.4;
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.example-prompt:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Whether this shows the pattern at its best or its worst. The poor-fit
+   examples are the more useful half — knowing when NOT to reach for a
+   pattern is most of knowing how to choose one. */
+.example-tag {
+  grid-column: 2;
+  align-self: start;
+  margin-top: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.example-good-fit .example-tag {
+  background: color-mix(in srgb, var(--level-api) 20%, transparent);
+  color: var(--level-api);
+}
+
+.example-poor-fit .example-tag {
+  background: color-mix(in srgb, var(--level-tool) 22%, transparent);
+  color: var(--level-tool);
+}
+
+.example-watch {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 0.71rem;
+  line-height: 1.45;
+  color: var(--fg-dim);
+}
+
+/* --- Waiting indicator ----------------------------------------------------
+   
+   The gap between pressing Send and the first token is real: about two
+   seconds for a single call, eight or more for the orchestrator, which
+   plans before it says anything. Without something on screen that gap
+   is indistinguishable from a broken app. */
+
+.waiting {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 0.8rem;
+  color: var(--fg-dim);
+}
+
+.waiting-text {
+  font-family: var(--font-ui);
+}
+
+/* The elapsed seconds, shown only past two seconds — a fast reply
+   should not flash a timer and remove it again. Tabular figures so the
+   row does not jitter as the number changes width. */
+.waiting-elapsed {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+  min-width: 2rem;
+}
+
+/* Three dots, staggered. Motion matters here more than elsewhere: a
+   static "waiting" row cannot be told from a frozen one. */
+.waiting-dots {
+  display: inline-flex;
+  gap: 0.2rem;
+  flex-shrink: 0;
+}
+
+.waiting-dots > span {
+  width: 0.3rem;
+  height: 0.3rem;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: waiting-pulse 1.2s ease-in-out infinite;
+}
+
+.waiting-dots > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.waiting-dots > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes waiting-pulse {
+  0%, 60%, 100% { opacity: 0.25; }
+  30% { opacity: 1; }
+}
+
+/* With motion reduced the dots hold steady, and the elapsed counter
+   carries the "still working" signal instead. */
+@media (prefers-reduced-motion: reduce) {
+  .waiting-dots > span {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* --- Models by role -------------------------------------------------------
+   
+   Three dropdowns rather than one per pattern. "The orchestrator uses
+   Haiku" is a fact about one pattern; "a call producing a structured
+   decision rarely needs the expensive model" is judgement that
+   transfers. */
+
+.model-role {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.2rem 0.5rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.model-role:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.model-role > label {
+  grid-column: 1 / -1;
+  font-family: var(--font-ui);
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.model-role > select {
+  appearance: none;
+  grid-column: 1;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.28rem 1.7rem 0.28rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background-color: var(--surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.model-role > select option {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+/* Marks a role moved off its default, so a deliberate experiment is
+   distinguishable from the starting state. */
+.model-changed {
+  grid-column: 2;
+  align-self: center;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+
+.model-used-by {
+  grid-column: 1 / -1;
+  margin: 0.25rem 0 0;
+  font-family: var(--font-ui);
+  font-size: 0.71rem;
+  line-height: 1.4;
+  color: var(--fg);
+}
+
+.model-guidance {
+  grid-column: 1 / -1;
+  margin: 0.25rem 0 0;
+  padding: 0.35rem 0.5rem;
+  border-radius: var(--radius);
+  background: var(--bg);
+  font-family: var(--font-ui);
+  font-size: 0.7rem;
+  line-height: 1.45;
+  color: var(--fg-dim);
+}
+
+/* --- A/B re-run -----------------------------------------------------------
+   
+   Switching a model and asking a different question tells you nothing.
+   Switching one variable and holding the rest — question, prompt,
+   tools, pattern, the other two roles — is what makes a comparison
+   mean anything. */
+
+.rerun-offer {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.4rem 0;
+}
+
+.rerun-label {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--fg-dim);
+}
+
+.rerun-button {
+  font-family: var(--font-ui);
+  font-size: 0.73rem;
+  padding: 0.25rem 0.55rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--fg-dim);
+  cursor: pointer;
+}
+
+.rerun-button:hover {
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* The result. Deliberately plainer than a message bubble — it is a
+   measurement, not part of the conversation. */
+.comparison {
+  align-self: stretch;
+  max-width: 48rem;
+  margin-top: 0.3rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+
+.comparison-heading {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--accent);
+  margin-bottom: 0.4rem;
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.76rem;
+}
+
+.comparison-table th,
+.comparison-table td {
+  padding: 0.25rem 0.4rem;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+}
+
+.comparison-table th:first-child,
+.comparison-table td:first-child {
+  text-align: left;
+  font-family: var(--font-ui);
+}
+
+.comparison-table th {
+  font-family: var(--font-ui);
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-dim);
+  font-weight: 500;
+}
+
+.comparison-table td {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.comparison-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* The interpretation, stated rather than left to be worked out — with
+   the caveat that cost alone does not settle it. */
+.comparison-verdict {
+  margin: 0.45rem 0 0;
+  font-family: var(--font-ui);
+  font-size: 0.73rem;
+  line-height: 1.45;
+  color: var(--fg-dim);
+}
+
+/* Explains which roles are missing from the panel and why. Without it
+   a learner cannot tell "this pattern does not use that role" from
+   "the app failed to render it". */
+.model-unused {
+  margin: 0.6rem 0 0;
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--radius);
+  background: var(--bg);
+  font-family: var(--font-ui);
+  font-size: 0.7rem;
+  line-height: 1.45;
+  color: var(--fg-dim);
+}
+
+/* --- Re-run picker and comparison ----------------------------------------- */
+
+.rerun-select {
+  appearance: none;
+  font: inherit;
+  font-family: var(--font-ui);
+  font-size: 0.73rem;
+  padding: 0.22rem 1.5rem 0.22rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background-color: var(--surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.4rem center;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.rerun-select option {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.rerun-equals {
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+}
+
+/* What the role is set to now, so the choice is made against something
+   rather than in the abstract. */
+.rerun-current {
+  font-family: var(--font-ui);
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+}
+
+/* Which models each run used, one row per role. A comma-separated
+   string made the two runs impossible to line up. */
+.comparison-models {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.5rem;
+  font-size: 0.73rem;
+}
+
+.comparison-models th,
+.comparison-models td {
+  padding: 0.2rem 0.4rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.comparison-models th {
+  font-family: var(--font-ui);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-dim);
+  font-weight: 500;
+}
+
+.comparison-models td {
+  font-family: var(--font-ui);
+}
+
+.comparison-models tr:last-child td {
+  border-bottom: none;
+}
+
+/* The role that was varied — the one line that matters in the matrix. */
+.comparison-models tr.is-varied td {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* The A / B markers. */
+.comparison-tag {
+  font-family: var(--font-mono) !important;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* --- Run A / Run B grouping -----------------------------------------------
+   
+   Two runs of the same question both produce an "iteration 1". Without
+   a visible boundary the panel reads as one long run whose timestamps
+   go backwards. */
+
+.log-group[data-run] > .log-group-header {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+/* A rule above run B, so the two are separated rather than merely
+   labelled differently. */
+.log-group[data-run="B"] {
+  border-top: 2px solid var(--accent);
+}
+
+/* --- Settings groups ------------------------------------------------------
+   
+   The settings are not four peers. Which model roles appear is decided
+   by the selected pattern, so the roles are nested under it — shown as
+   a flat list they looked independent, and the dropdowns appeared and
+   vanished for no visible reason. */
+
+.setting-group {
+  border-bottom: 2px solid var(--border);
+}
+
+.setting-group:last-child {
+  border-bottom: none;
+}
+
+.setting-group-title {
+  margin: 0;
+  padding: 0.7rem var(--gap) 0.3rem;
+  font-family: var(--font-ui);
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-dim);
+}
+
+/* A setting that belongs to the one above it. The rule down the left
+   says "this is part of that" without needing a caption. */
+.setting-nested {
+  margin-left: var(--gap);
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--accent);
+  border-bottom: none;
+}
+
+/* --- Tool example prompts -------------------------------------------------
+   
+   A tool nobody knows how to invoke teaches nothing — and guessing a
+   prompt that works is harder than it looks, because a model asked
+   something it can answer unaided will not reach for a tool. */
+
+.tool-example {
+  padding: 0 var(--gap) 0.6rem calc(var(--gap) + 1.6rem);
+}
+
+.tool-example-prompt {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-ui);
+  font-size: 0.73rem;
+  line-height: 1.4;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.tool-example-prompt:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.tool-example-watch {
+  margin: 0.3rem 0 0;
+  font-family: var(--font-ui);
+  font-size: 0.69rem;
+  line-height: 1.45;
+  color: var(--fg-dim);
+}
+
+/* The iteration within a turn, shown only when a turn made more than
+   one request. Dimmer than the turn name, because the turn is what
+   locates you in the conversation and the request number is detail. */
+.log-group-iteration {
+  margin-left: 0.5rem;
+  font-size: 0.92em;
+  opacity: 0.65;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.log-group-iteration:empty {
+  display: none;
+}
+
+/* --- Log level filters ----------------------------------------------------
+   
+   In the manner of a browser Network tab. A busy orchestrator run
+   produces thirty rows, and hiding the ones you are not reading is the
+   difference between a panel you scan and one you scroll past. */
+
+/* Inside the actions bar, which is the sticky one. */
+#log-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.55rem;
+  min-width: 0;
+}
+
+.log-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  user-select: none;
+}
+
+.log-filter input[type="checkbox"] {
+  width: 0.78rem;
+  height: 0.78rem;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* Each filter carries its level's colour, so the checkbox row doubles
+   as a legend for the stripes down the panel. */
+.log-filter-api { accent-color: var(--level-api); }
+.log-filter-api .log-filter-name { color: var(--level-api); }
+.log-filter-tool { accent-color: var(--level-tool); }
+.log-filter-tool .log-filter-name { color: var(--level-tool); }
+.log-filter-info { accent-color: var(--level-info); }
+.log-filter-info .log-filter-name { color: var(--level-info); }
+.log-filter-warn { accent-color: var(--level-warn); }
+.log-filter-warn .log-filter-name { color: var(--level-warn); }
+.log-filter-error { accent-color: var(--level-error); }
+.log-filter-error .log-filter-name { color: var(--level-error); }
+
+.log-filter-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-dim);
+  opacity: 0.7;
+}
+
+/* An unchecked filter recedes, so the enabled set reads at a glance. */
+.log-filter:has(input:not(:checked)) {
+  opacity: 0.4;
+}
+
+
+
+/* --- Structured extraction (in the transcript) ---------------------------- */
+
+/* The summary line under a finished reply: models, cost, elapsed time.
+   Left-aligned to match the assistant turn it belongs to, and quiet —
+   it should be readable at a glance but never compete with the answer
+   itself. Deliberately the same treatment as .extract-footer, so the
+   price of a chat turn and the price of an extraction are directly
+   comparable on sight. */
+
+/* The action row under a user message. The block already aligns it;
+   this only needs to lay the buttons out. */
+.turn-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+/* Quiet by default: this is an optional side errand, not something
+   every message needs. It comes forward on hover and on focus. */
+.turn-action {
+  font-size: 0.72rem;
+  color: var(--fg-dim);
+  opacity: 0.75;
+}
+
+.turn-action:hover,
+.turn-action:focus-visible {
+  opacity: 1;
+  color: var(--accent);
+}
+
+
+/* The result card. Indented and bordered rather than bubble-shaped, so
+   it reads as a note about the conversation rather than a turn in it —
+   nobody said this. */
+/* The extraction result, inside the block of the message it
+   describes. Full width of the block and left-bordered, so it reads
+   as an annotation on that message rather than a turn of its own. */
+.extract-card {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--level-api);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: left;
+}
+
+.extract-heading {
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--level-api);
+}
+
+/* The parsed fields. A table because they arrived as typed data, not
+   as prose that had to be read out of a paragraph. */
+.extract-fields {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.extract-fields th,
+.extract-fields td {
+  padding: 0.3rem 0.5rem 0.3rem 0;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.extract-fields th {
+  width: 9rem;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--fg-dim);
+}
+
+.extract-fields td {
+  font-family: var(--font-ui);
+  color: var(--fg);
+}
+
+/* Each value carries its JSON type: "advanced", true and ["a","b"] all
+   render as text otherwise, and the type is what the schema promised. */
+.extract-type {
+  display: inline-block;
+  margin-left: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+}
+
+.extract-keyword {
+  display: inline-block;
+  margin: 0.1rem 0.25rem 0.1rem 0;
+  padding: 0.08em 0.4em;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.extract-raw-wrap {
+  margin-top: 0.6rem;
+}
+
+.extract-raw-wrap summary {
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 0.74rem;
+  color: var(--fg-dim);
+}
+
+.extract-raw {
+  margin: 0.45rem 0 0;
+  padding: 0.5rem 0.6rem;
+  overflow-x: auto;
+  border-radius: 4px;
+  background: var(--surface-sunk);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.extract-note {
+  margin: 0.4rem 0 0;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--border);
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--fg-dim);
+}
+
+.extract-footer {
+  margin-top: 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.extract-error {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  color: var(--level-error);
+}
+
+/* --- Reasoning summary ---------------------------------------------------- */
+
+/* Sits above the reply it explains, in the assistant column but visibly
+   not a message: dashed, unfilled, and collapsed by default. It is a
+   note about how the answer was reached, not part of the answer. */
+.thinking-block {
+  padding: 0.5rem 0.7rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+}
+
+.thinking-block > summary {
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-dim);
+}
+
+.thinking-body {
+  margin-top: 0.5rem;
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--fg-dim);
+}
+
+.thinking-note {
+  margin: 0.6rem 0 0;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--border);
+  font-family: var(--font-ui);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--fg-dim);
+}
+
+/* --- Session cost and actions (steps 65, 66) ------------------------------ */
+
+/* Pushed to the right end of the header: the title and settings read
+   left to right, these are the controls you reach for rather than
+   read. The margin-left:auto on the first of them does it. */
+/* The cost and the actions form the right-hand group. margin-left
+   on the cost pushes both, so the status text stays left with the
+   title where it is read, and the things you click sit together at
+   the far end. */
+#session-cost {
+  margin-left: auto;
+  padding-right: 0.25rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  cursor: help;
+}
+
+/* The figure itself. Monospace and tabular so it does not jiggle as
+   the digits change, which it does after every single turn. */
+#session-cost-value {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+#session-cost-label {
+  font-family: var(--font-ui);
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+}
+
+/* --- Preset questions (step 64) ------------------------------------------- */
+
+/* A row above the composer. Quiet by default — these are a way in,
+   not the main control. */
+#presets {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0 0 0.6rem;
+}
+
+#presets-label {
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  color: var(--fg-dim);
+}
+
+.preset-button {
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: var(--font-ui);
+  font-size: 0.73rem;
+  color: var(--fg-dim);
+  cursor: pointer;
+}
+
+.preset-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.preset-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- JSON tree ------------------------------------------------------------ */
+
+/* Replaces the flat <pre> that used to hold each payload. Same sunk
+   background, so it still reads as data rather than interface. */
+.json-tree {
+  margin: 0.3rem 0 0.1rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+/* Expand all / Collapse all / Copy. Along the top because they act on
+   everything below them. */
+.jt-controls {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.jt-control {
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--fg-dim);
+  cursor: pointer;
+}
+
+.jt-control:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.jt-control:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* One object or array. The marker is drawn below rather than using
+   the browser's, which differs between engines and is hard to see. */
+.jt-node > summary {
+  cursor: pointer;
+  list-style: none;
+  padding-left: 0.85rem;
+  position: relative;
+  border-radius: 3px;
+}
+
+.jt-node > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* A triangle that turns. Positioned rather than inline so the keys
+   below it line up whether a row is a container or not. */
+.jt-node > summary::before {
+  content: "▸";
+  position: absolute;
+  left: 0;
+  color: var(--fg-dim);
+  transition: transform 0.12s ease;
+  display: inline-block;
+}
+
+.jt-node[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.jt-node > summary:hover {
+  background: var(--surface-sunk);
+}
+
+.jt-node > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Children indent by one step, with a guide line back to the parent —
+   at four levels deep the line is what keeps the nesting readable. */
+.jt-children {
+  margin-left: 0.3rem;
+  padding-left: 0.6rem;
+  border-left: 1px solid var(--border);
+}
+
+/* A primitive. Padded to match a summary's text, so keys form one
+   column regardless of what they hold. */
+.jt-line {
+  padding-left: 0.85rem;
+}
+
+.jt-key {
+  color: var(--level-api);
+}
+
+.jt-bracket {
+  color: var(--fg-dim);
+}
+
+/* What is inside a folded container: "model, max_tokens, system…".
+   Says more than "6 keys" about whether this is the branch you want. */
+.jt-hint {
+  margin: 0 0.3rem;
+  font-style: italic;
+  color: var(--fg-dim);
+  opacity: 0.85;
+}
+
+.jt-string {
+  color: var(--level-tool);
+  overflow-wrap: anywhere;
+}
+
+.jt-number {
+  color: var(--level-api);
+}
+
+.jt-boolean {
+  color: var(--accent);
+}
+
+.jt-null,
+.jt-other {
+  color: var(--fg-dim);
+  font-style: italic;
+}
+
+/* The control that unfolds the tail of a long string. */
+.jt-more {
+  margin-left: 0.2rem;
+  padding: 0 0.25rem;
+  border: none;
+  border-radius: 3px;
+  background: var(--surface-sunk);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--fg-dim);
+  cursor: pointer;
+}
+
+.jt-more:hover {
+  color: var(--accent);
+}
+
+
+/* --- The transcript status bar -------------------------------------------- */
+
+/* Level with the tab strip opposite and styled to match it: same sunk
+   background, same bottom rule, same vertical padding. Each column
+   then opens with a strip saying what it holds. */
+/* The second row of each pane: the settings summary on the left, the
+   log filters on the right. One rule for both, because they sit side
+   by side and any difference between them shows as a step.
+
+   They were built separately and drifted 9px apart — different
+   padding, different border width, different font size. The left one
+   had been matched to the tab strip that used to sit opposite it,
+   which no longer exists. */
+#transcript-bar,
+#log-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+  background: var(--surface-sunk);
+  border-bottom: 1px solid var(--border);
+  /* A fixed height, not padding plus whatever the content comes to.
+     
+     These two rows hold different things — a line of text on the
+     left, checkboxes and labels on the right — in different fonts at
+     different sizes. Any box sized by its content will differ by a
+     pixel or two, and side by side that shows as a step. Fixing the
+     height and centring the content makes the difference invisible
+     by construction rather than by tuning. */
+  height: 2.1rem;
+  padding: 0 var(--gap);
+  box-sizing: border-box;
+}
+
+
+
+/* --- Pane headers --------------------------------------------------------- */
+
+/* Both panes open the same way: a title, then the one action that
+   belongs to that pane. Previously the left pane had no header at all
+   and the right one had a tab strip doing two jobs — switching views
+   and holding configuration. */
+#transcript-header,
+#log-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem var(--gap);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.pane-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  margin-right: auto; /* pushes the action to the far end */
+  font-family: var(--font-ui);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--fg);
+}
+
+/* --- Settings dialog ------------------------------------------------------ */
+
+/* Closed by default.
+   
+   A browser hides a closed <dialog> with `display: none` from its own
+   stylesheet, and any author rule that sets display overrides it. The
+   first version of this rule set `display: flex` unconditionally, so
+   the dialog was permanently visible and no amount of not calling
+   showModal() would hide it.
+   
+   The layout therefore belongs on [open], and the closed state is
+   stated explicitly rather than left to the UA stylesheet to win an
+   argument it cannot. (The log filters had exactly this bug: see the
+   [hidden] rule near #log-list.) */
+#settings-dialog:not([open]) {
+  display: none;
+}
+
+#settings-dialog[open] {
+  /* The dialog scrolls internally, not as a whole, so its header and
+     tabs stay put while the settings move under them. */
+  display: flex;
+  flex-direction: column;
+
+  /* <body> is a grid, and a <dialog> that is a body child becomes a
+     grid item — auto-placed into a cell, which fights the centring
+     the top layer is supposed to give it. Taking it out of flow with
+     fixed positioning puts it back where a modal belongs. */
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  z-index: 10;
+}
+
+#settings-dialog {
+  width: min(44rem, 92vw);
+  max-height: 86vh;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  overflow: hidden;
+}
+
+#settings-dialog::backdrop {
+  background: rgb(0 0 0 / 0.35);
+}
+
+#settings-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem var(--gap);
+  border-bottom: 1px solid var(--border);
+}
+
+#settings-dialog-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+#settings-dialog-tabs {
+  display: flex;
+  background: var(--surface-sunk);
+  border-bottom: 1px solid var(--border);
+}
+
+#settings-dialog-tabs > [role="tab"] {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 0.85rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+  cursor: pointer;
+}
+
+#settings-dialog-tabs > [role="tab"]:hover {
+  color: var(--fg);
+}
+
+#settings-dialog-tabs > [role="tab"][aria-selected="true"] {
+  background: var(--surface);
+  border-bottom-color: var(--accent);
+  color: var(--fg);
+}
+
+#settings-dialog-tabs > [role="tab"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+#settings-dialog-body {
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* The count beside a pane title or a settings tab. Survived the tab
+   strip's removal because both the log and the tools still carry one. */
+.tab-badge {
+  display: inline-block;
+  min-width: 1.3rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  background: var(--border);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-align: center;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- API key ---------------------------------------------------------------
+   The key input and the first-run banner. Both exist because the key moved
+   out of .env and into the app, which means the UI now has to ask for a
+   credential and say what it does with it. */
+
+/* Input, Save and Clear on one line. The input takes the slack so a long
+   key is readable; the buttons stay their natural width. */
+#api-key-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+
+#api-key-input {
+  flex: 1;
+  min-width: 0; /* lets the flex item shrink rather than overflow the row */
+  padding: 0.45rem 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+#api-key-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+#api-key-save {
+  padding: 0.45rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent-fg);
+  cursor: pointer;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+}
+
+#api-key-save:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+/* The status line doubles as the error channel, so it needs a colour that
+   separates "this is what is loaded" from "that did not work". */
+#api-key-status.is-error {
+  color: var(--level-error);
+}
+
+#api-key-status.is-ok {
+  color: var(--level-api);
+}
+
+/* The first-run banner. Sits above the transcript, full width, and is
+   removed from the layout entirely once a key is set — [hidden] rather
+   than opacity, so it takes no space and is not read by a screen reader. */
+#api-key-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.7rem 1rem;
+  font-size: 0.9rem;
+  color: var(--fg);
+  background: var(--surface-sunk);
+  border-bottom: 1px solid var(--border);
+}
+
+#api-key-banner[hidden] {
+  display: none;
+}
+
+#api-key-banner-open {
+  padding: 0.35rem 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent-fg);
+  cursor: pointer;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+}

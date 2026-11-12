@@ -1,0 +1,14 @@
+{
+  "_comment": "A sample file for the read_file tool to read. Nothing here is secret.",
+  "app": "anthropic-chat-lab",
+  "defaults": {
+    "model": "claude-opus-5-5",
+    "maxTokens": 16000,
+    "systemPrompt": "teaching"
+  },
+  "limits": {
+    "toolLoopIterations": 10,
+    "notesStored": 100,
+    "searchResults": 3
+  }
+}

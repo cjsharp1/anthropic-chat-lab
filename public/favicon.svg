@@ -1,0 +1,22 @@
+<!--
+  favicon.svg — the tab icon.
+
+  A chat bubble with three dots, in the app's accent colour. SVG
+  rather than .ico so it stays sharp at any size and is editable as
+  text; every browser this app targets supports it.
+
+  It exists mainly to stop the 404 the browser logs on every page
+  load when no icon is declared — a red line in the console of a
+  teaching app invites the question "is something broken?", and the
+  answer being "no, that one is normal" is a bad use of a learner's
+  attention.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="7" fill="#9a4f20"/>
+  <path
+    d="M7 10.5A2.5 2.5 0 0 1 9.5 8h13A2.5 2.5 0 0 1 25 10.5v7a2.5 2.5 0 0 1-2.5 2.5H14l-5 4.5V20h-.5A2.5 2.5 0 0 1 7 17.5z"
+    fill="#ffffff"/>
+  <circle cx="12" cy="14" r="1.5" fill="#9a4f20"/>
+  <circle cx="16" cy="14" r="1.5" fill="#9a4f20"/>
+  <circle cx="20" cy="14" r="1.5" fill="#9a4f20"/>
+</svg>

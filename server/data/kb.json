@@ -1,0 +1,163 @@
+[
+  {
+    "id": "messages-api-basics",
+    "title": "The Messages API request",
+    "tags": [
+      "api",
+      "basics",
+      "messages",
+      "max_tokens"
+    ],
+    "body": "Every call to Claude goes through POST /v1/messages. Three fields are required: model (which Claude to use), max_tokens (a hard ceiling on the reply length), and messages (the conversation so far, as an array of {role, content} objects). The roles allowed in that array are 'user' and 'assistant' only. Instructions for the model go in the separate top-level 'system' parameter, not in the messages array. max_tokens is enforced, not advisory: the model is not aware of it and will be cut off mid-sentence if it is reached."
+  },
+  {
+    "id": "stateless-conversations",
+    "title": "The API is stateless",
+    "tags": [
+      "conversation",
+      "history",
+      "state",
+      "cost"
+    ],
+    "body": "Anthropic keeps nothing between requests. There is no conversation ID and no server-side session. A conversation works because the client resends the entire message history on every turn. Claude 'remembers' something only because the message containing it is in the array that was just posted. Two consequences follow: input tokens grow with every turn, so turn ten pays for turns one to nine again; and the history is the client's to manage, so it can be trimmed, edited or restarted at will."
+  },
+  {
+    "id": "content-blocks",
+    "title": "Responses are blocks, not strings",
+    "tags": [
+      "response",
+      "content",
+      "text",
+      "tool_use",
+      "parsing"
+    ],
+    "body": "response.content is an array of content blocks, not a string. Each block has a 'type'. A plain reply holds one block of type 'text'. A reply that wants to use a tool holds one or more blocks of type 'tool_use' alongside any text. Extended thinking adds blocks of type 'thinking'. Reaching for content[0].text works until the day a response leads with a different block type, so filter by type instead: response.content.filter(b => b.type === 'text'). In TypeScript the compiler enforces this, because ContentBlock is a discriminated union and .text does not exist on every variant."
+  },
+  {
+    "id": "stop-reason",
+    "title": "stop_reason tells you why generation ended",
+    "tags": [
+      "stop_reason",
+      "max_tokens",
+      "truncation",
+      "errors"
+    ],
+    "body": "Every response carries stop_reason. 'end_turn' means Claude finished naturally. 'max_tokens' means it hit the ceiling and the reply is truncated mid-sentence — the HTTP call still succeeded with status 200, so nothing else signals the problem. 'tool_use' means it wants a tool run before it can continue. 'refusal' means a safety classifier declined the request; check this before reading content. Code that reads the reply without checking stop_reason will silently treat a truncated answer as a complete one, which is one of the most common bugs in LLM applications."
+  },
+  {
+    "id": "tool-use-loop",
+    "title": "The tool use loop",
+    "tags": [
+      "tools",
+      "tool_use",
+      "tool_result",
+      "loop",
+      "agent"
+    ],
+    "body": "Claude never executes a tool itself. The loop is: send a request with a 'tools' array describing what is available; if the response has stop_reason 'tool_use', find the tool_use blocks in its content; run the matching functions yourself; then send a new request with the assistant turn appended and a user turn containing tool_result blocks. Each tool_result must carry the tool_use_id of the block it answers. Repeat until stop_reason is 'end_turn'. Always cap the number of iterations: a model that keeps requesting tools will otherwise loop indefinitely."
+  },
+  {
+    "id": "parallel-tool-use",
+    "title": "Parallel tool calls",
+    "tags": [
+      "tools",
+      "parallel",
+      "tool_result"
+    ],
+    "body": "A single assistant message can contain several tool_use blocks, meaning Claude wants several tools run at once. Execute them concurrently, then return every tool_result in a SINGLE user message. Splitting the results across multiple messages is accepted by the API but teaches the model that parallel calls do not work, and it will stop making them. If one tool fails, still return a result block for it with is_error set to true — omitting the block entirely causes the next request to be rejected, because every tool_use must be answered."
+  },
+  {
+    "id": "tool-errors",
+    "title": "Returning tool errors",
+    "tags": [
+      "tools",
+      "errors",
+      "is_error",
+      "recovery"
+    ],
+    "body": "When a tool throws, do not let the exception end the request. Return a tool_result block with is_error: true and a message describing what went wrong. Claude reads that message and can recover — by correcting its arguments and calling again, by trying a different tool, or by telling the user the operation failed. A clear error message is therefore prompt text: 'Mars/Olympus_Mons is not a recognised IANA timezone name, use a name like Europe/London' leads to a successful retry, where 'RangeError' does not."
+  },
+  {
+    "id": "system-prompts",
+    "title": "System prompts",
+    "tags": [
+      "system",
+      "prompt",
+      "instructions",
+      "caching"
+    ],
+    "body": "The system prompt is a top-level 'system' parameter, separate from the messages array. It carries operator authority: Claude treats it as instructions from whoever built the app, not as something a user said, so a user asking the model to ignore it does not carry the same weight. Specificity is what makes a system prompt work. 'Be helpful and friendly' changes almost nothing, because it describes the default. Instructions earn their place by ruling something out: naming a format to avoid, a length to stay under, or a behaviour to prefer. Because the system prompt is identical on every turn and sits at the start of the request, it is the natural thing to mark for prompt caching."
+  },
+  {
+    "id": "prompt-caching",
+    "title": "Prompt caching",
+    "tags": [
+      "caching",
+      "cache_control",
+      "cost",
+      "optimisation"
+    ],
+    "body": "Prompt caching stores a prefix of the request so later requests that share it are billed at a large discount — cache reads cost roughly a twentieth of fresh input tokens. Mark a content block with cache_control: {type: 'ephemeral'}. Caching is a PREFIX match: any byte change anywhere before a breakpoint invalidates everything after it. So stable content (system prompt, tool definitions) must come first and volatile content (timestamps, per-request IDs) last. Verify it is working by checking usage.cache_read_input_tokens on the response. If that is zero across repeated requests, something in the prefix is changing — a timestamp in the system prompt and an unsorted tool list are the usual culprits."
+  },
+  {
+    "id": "streaming",
+    "title": "Streaming responses",
+    "tags": [
+      "streaming",
+      "sse",
+      "timeout",
+      "max_tokens"
+    ],
+    "body": "Streaming returns the reply in fragments as it is generated rather than in one response at the end. In the TypeScript SDK, call client.messages.stream() instead of .create(), listen to the 'text' event for fragments, and await stream.finalMessage() for the complete Message — which is the same object .create() would have returned. Streaming is not only cosmetic: a long non-streaming request risks an HTTP timeout somewhere in the chain, which is why the SDKs require streaming for very large max_tokens values."
+  },
+  {
+    "id": "error-classes",
+    "title": "SDK error classes",
+    "tags": [
+      "errors",
+      "401",
+      "429",
+      "retry",
+      "sdk"
+    ],
+    "body": "The TypeScript SDK exports a typed class for each failure, as NAMED exports from the package root — not as properties of the default export. AuthenticationError is 401, NotFoundError is 404 (usually a misspelled model ID), RateLimitError is 429, BadRequestError is 400, InternalServerError covers 5xx, and APIConnectionError means no response arrived at all. Every one of these is also an APIError, so a chain of instanceof checks must test the specific classes first; putting the general case first swallows all of them. The distinction that matters is retryability: 429 and 5xx are worth retrying, 401 and 404 never will be."
+  },
+  {
+    "id": "model-ids",
+    "title": "Model identifiers",
+    "tags": [
+      "model",
+      "opus",
+      "sonnet",
+      "haiku",
+      "pricing",
+      "cost",
+      "price",
+      "expensive"
+    ],
+    "body": "Model IDs are complete as written and take no date suffix: 'claude-opus-5-5', not 'claude-opus-5-5-20260401'. A wrong ID returns 404, not a validation error, which is why a 404 on a Messages request is almost always a typo in the model name. The current family is Opus 5.5 at $4 per million input tokens and $20 per million output, Sonnet 5.5 at $2 and $10, and Haiku 5.5 at $0.10 and $0.50. Output tokens cost five times input across the range, so the cheapest available optimisation is usually instructing the model to be brief."
+  },
+  {
+    "id": "base-url-routing",
+    "title": "ANTHROPIC_BASE_URL and unexpected 401s",
+    "tags": [
+      "401",
+      "gateway",
+      "configuration",
+      "debugging"
+    ],
+    "body": "The SDK reads ANTHROPIC_BASE_URL from the environment and will silently route every request there. On a machine configured to use a company LLM gateway, a perfectly valid API key then returns 401, because the gateway expects its own credentials. The error names the gateway rather than mentioning base URLs, so the cause is not obvious. If a known-good key is rejected, check the environment before the key. Passing baseURL explicitly to the client constructor pins it to the public API and ignores whatever the environment says."
+  },
+  {
+    "id": "token-counting",
+    "title": "What counts as an input token",
+    "tags": [
+      "tokens",
+      "cost",
+      "usage",
+      "context",
+      "price"
+    ],
+    "body": "usage.input_tokens counts everything sent: the system prompt, every message in the history, and all tool definitions — not just the newest question. In a long conversation it grows every turn while output stays roughly constant, which is why extended chats get expensive and why caching targets the prefix. usage also reports cache_creation_input_tokens and cache_read_input_tokens; both are absent rather than zero on a response that used no caching, so code reading them should default them. Counting tokens accurately before sending requires the count_tokens endpoint — character counts and third-party tokenizers are only approximations."
+  }
+]
