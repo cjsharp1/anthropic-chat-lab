@@ -16,6 +16,10 @@ about it.
 It runs entirely on your machine. Nothing is hosted, nothing is shared,
 and the only network calls are to the Anthropic API.
 
+📄 **[Project overview](https://cjsharp1.github.io/anthropic-chat-lab/)**
+— a one-page tour of the architecture, the patterns and what each one
+costs, without cloning anything.
+
 ---
 
 ## What you need
@@ -394,6 +398,8 @@ public/
 scripts/                Standalone experiments, see below
 build-plan.html         The 68-step plan this was built from
 overview.html           A one-page tour of the finished project
+index.html              Redirects to overview.html, so the GitHub
+                        Pages root URL resolves
 CLAUDE.md               Conventions for Claude Code — the comment
                         rule, the key invariants, what not to break
 ```

@@ -142,3 +142,15 @@ Changing setup, routes or counts means updating:
 
 `build-plan.html` is a historical record of how the app was built.
 Leave its `.env`-era references alone; they were accurate then.
+
+## GitHub Pages
+
+`overview.html` is published at
+<https://cjsharp1.github.io/anthropic-chat-lab/>, served from the repo
+root on `main`. Editing it changes a live page, so keep its stat strip
+and dependency table accurate — they are checkable claims, and the
+counts have gone stale before.
+
+`index.html` exists only to redirect the bare Pages URL to
+`overview.html`. It is a redirect rather than a copy so there is one
+source of truth; do not replace it with duplicated content.
