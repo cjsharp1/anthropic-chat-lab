@@ -397,9 +397,9 @@ public/
   favicon.svg
 scripts/                Standalone experiments, see below
 build-plan.html         The 68-step plan this was built from
-overview.html           A one-page tour of the finished project
-index.html              Redirects to overview.html, so the GitHub
-                        Pages root URL resolves
+index.html              A one-page tour of the finished project.
+                        Named index.html because GitHub Pages serves
+                        it as the site root
 CLAUDE.md               Conventions for Claude Code — the comment
                         rule, the key invariants, what not to break
 ```

@@ -137,7 +137,7 @@ refactor:
 Changing setup, routes or counts means updating:
 
 - `README.md` — setup, scripts table, project layout, security notes
-- `overview.html` — the stat strip, dependency table, route count
+- `index.html` — the stat strip, dependency table, route count
 - `.env.example` — if env handling changes
 
 `build-plan.html` is a historical record of how the app was built.
@@ -145,12 +145,17 @@ Leave its `.env`-era references alone; they were accurate then.
 
 ## GitHub Pages
 
-`overview.html` is published at
-<https://cjsharp1.github.io/anthropic-chat-lab/>, served from the repo
-root on `main`. Editing it changes a live page, so keep its stat strip
-and dependency table accurate — they are checkable claims, and the
-counts have gone stale before.
+`index.html` is the project overview, published at
+<https://cjsharp1.github.io/anthropic-chat-lab/> and served from the
+repo root on `main`. It carries that name, rather than a more
+descriptive one, because Pages serves it as the site root.
 
-`index.html` exists only to redirect the bare Pages URL to
-`overview.html`. It is a redirect rather than a copy so there is one
-source of truth; do not replace it with duplicated content.
+Editing it changes a live page, so keep its stat strip and dependency
+table accurate — they are checkable claims, and the counts have gone
+stale before.
+
+It is a complete HTML document: doctype, `<html lang>`, `<head>` with
+`<meta charset="utf-8">`, `<body>`. Keep it that way. Served over HTTP
+without a doctype it renders in quirks mode, and without the charset
+the browser guesses windows-1252 and every em-dash becomes mojibake —
+both of which this file did before it was published.
