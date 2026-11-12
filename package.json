@@ -1,7 +1,7 @@
 {
   "name": "anthropic-chat-lab",
   "version": "1.0.0",
-  "description": "A teaching app for the Anthropic certifications: a simple chat client over the Claude API with a live log panel, example tools, and switchable orchestration patterns.",
+  "description": "A teaching app for the Anthropic certifications: a chat client over the Claude API with a live activity log, example tools, and seven switchable orchestration patterns.",
   "main": "server/index.ts",
   "type": "module",
   "scripts": {
