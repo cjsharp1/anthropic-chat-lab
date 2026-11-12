@@ -396,7 +396,8 @@ public/
   styles.css
   favicon.svg
 scripts/                Standalone experiments, see below
-build-plan.html         The 68-step plan this was built from
+docs/build-plan.html    The 68-step plan this was built from,
+                        kept as a record of the process
 index.html              A one-page tour of the finished project.
                         Named index.html because GitHub Pages serves
                         it as the site root

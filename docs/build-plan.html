@@ -1,4 +1,6 @@
 <!doctype html>
+<html lang="en">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Anthropic Chat Lab Build Plan</title>
@@ -386,7 +388,8 @@
   }
 </style>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Spectral:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
-
+</head>
+<body>
 <header class="top">
   <div class="top-inner">
     <h1>Anthropic Chat Lab</h1>
@@ -401,7 +404,7 @@
     <p>A teaching app for the Anthropic certifications: a simple TypeScript chat client over the Claude API, with a live log panel, example tools, and switchable orchestration patterns. Every file is commented with a plain-language overview of what it does.</p>
     <p><strong>How to use this plan.</strong> Work top to bottom. Each step is sized for under 30 minutes and ends with a done-check you can run or see. Tick the box when the check passes — your progress is saved in this browser, so open this file from the same path each time. If a step stalls, paste it back to Claude and ask for it to be split into <code>23a</code>, <code>23b</code>, and so on.</p>
 
-    <p>This plan lives in the project folder it describes. Every path in the steps below is relative to that folder, and that is where you run every command.</p>
+    <p>This plan sits in <code>docs/</code> inside the project it describes. Every path in the steps below is relative to the <em>project root</em> &mdash; the folder above this one &mdash; and that is where you run every command.</p>
 
     <dl class="meta-grid">
       <div><dt>Project root</dt><dd><code>anthropic-chat-lab\</code></dd></div>
@@ -1451,3 +1454,5 @@ git clone <your repo> fresh-test && cd fresh-test
 
   refresh();
 </script>
+</body>
+</html>

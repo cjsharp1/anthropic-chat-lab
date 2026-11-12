@@ -140,8 +140,10 @@ Changing setup, routes or counts means updating:
 - `index.html` — the stat strip, dependency table, route count
 - `.env.example` — if env handling changes
 
-`build-plan.html` is a historical record of how the app was built.
-Leave its `.env`-era references alone; they were accurate then.
+`docs/build-plan.html` is a historical record of how the app was
+built, kept deliberately as an artifact of the process. Leave its
+`.env`-era references alone; they were accurate when written. It is
+also served by Pages, so keep it a valid HTML document.
 
 ## GitHub Pages
 
