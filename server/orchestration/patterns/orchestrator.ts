@@ -102,8 +102,6 @@ import {
   summariseUsage,
   type UsageSummary,
 } from "../../usage.js";
-import { thinkingConfig } from "../../thinking.js";
-import { withEffort } from "../../effort.js";
 import type { Pattern, PatternContext, PatternResult } from "../types.js";
 import type { Logger } from "../../logger.js";
 
@@ -265,12 +263,12 @@ export const orchestrator: Pattern = {
       messages,
       // Thinking is always on; this decides whether its summary comes
       // back readable. See server/thinking.ts.
-      ...thinkingConfig(thinkingDisplay),
-      // The plan schema and the effort level share one output_config,
-      // so the effort is merged into the existing object rather than
-      // spread after it — a second `output_config:` key would
-      // silently drop the format.
-      ...withEffort(effort, { format: zodOutputFormat(PlanSchema) }),
+      thinking: { type: "adaptive" as const, display: thinkingDisplay },
+      // The plan schema and the effort level share ONE output_config.
+      // Both go in the same object: a second `output_config:` key
+      // would not merge, it would silently replace the first and the
+      // format would be gone.
+      output_config: { format: zodOutputFormat(PlanSchema), effort },
     };
 
     logPlanRequest(log, producing, deciding, planRequest);
@@ -340,8 +338,8 @@ export const orchestrator: Pattern = {
           messages: [{ role: "user" as const, content: subtask.question }],
           // Thinking is always on; this decides whether its
           // summary comes back readable. See server/thinking.ts.
-          ...thinkingConfig(thinkingDisplay),
-          ...withEffort(effort),
+          thinking: { type: "adaptive" as const, display: thinkingDisplay },
+          output_config: { effort },
         };
 
         logWorkerRequest(log, subtasks, workerRequest, i, subtask);
@@ -454,8 +452,8 @@ export const orchestrator: Pattern = {
       messages: withCachedHistory(messages, cacheMode),
       // Thinking is always on; this decides whether its
       // summary comes back readable. See server/thinking.ts.
-      ...thinkingConfig(thinkingDisplay),
-      ...withEffort(effort),
+      thinking: { type: "adaptive" as const, display: thinkingDisplay },
+      output_config: { effort },
     };
 
     logSynthRequest(log, succeeded, synthRequest);

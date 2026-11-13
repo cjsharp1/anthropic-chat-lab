@@ -67,8 +67,6 @@ import {
   summariseUsage,
   type UsageSummary,
 } from "../../usage.js";
-import { thinkingConfig } from "../../thinking.js";
-import { withEffort } from "../../effort.js";
 import type { Pattern, PatternContext, PatternResult } from "../types.js";
 import type { Logger } from "../../logger.js";
 
@@ -215,8 +213,8 @@ export const parallel: Pattern = {
           messages,
           // Thinking is always on; this decides whether its
           // summary comes back readable. See server/thinking.ts.
-          ...thinkingConfig(thinkingDisplay),
-          ...withEffort(effort),
+          thinking: { type: "adaptive" as const, display: thinkingDisplay },
+          output_config: { effort },
         };
 
         logBranchRequest(log, branchRequest, aspect);
@@ -324,8 +322,8 @@ export const parallel: Pattern = {
       messages: withCachedHistory(messages, cacheMode),
       // Thinking is always on; this decides whether its
       // summary comes back readable. See server/thinking.ts.
-      ...thinkingConfig(thinkingDisplay),
-      ...withEffort(effort),
+      thinking: { type: "adaptive" as const, display: thinkingDisplay },
+      output_config: { effort },
     };
 
     logMergeRequest(log, succeeded, mergeRequest);

@@ -63,8 +63,6 @@ import {
   summariseUsage,
   type UsageSummary,
 } from "../../usage.js";
-import { thinkingConfig } from "../../thinking.js";
-import { withEffort } from "../../effort.js";
 import type { Pattern, PatternContext, PatternResult } from "../types.js";
 import type { Logger } from "../../logger.js";
 
@@ -177,8 +175,8 @@ export const chaining: Pattern = {
       messages,
       // Thinking is always on; this decides whether its
       // summary comes back readable. See server/thinking.ts.
-      ...thinkingConfig(thinkingDisplay),
-      ...withEffort(effort),
+      thinking: { type: "adaptive" as const, display: thinkingDisplay },
+      output_config: { effort },
     };
 
     logPlanRequest(log, planRequest, messages);
@@ -267,8 +265,8 @@ export const chaining: Pattern = {
       messages: withCachedHistory(messages, cacheMode),
       // Thinking is always on; this decides whether its
       // summary comes back readable. See server/thinking.ts.
-      ...thinkingConfig(thinkingDisplay),
-      ...withEffort(effort),
+      thinking: { type: "adaptive" as const, display: thinkingDisplay },
+      output_config: { effort },
     };
 
     logWriteRequest(log, writerSystem, writeRequest, messages, system);

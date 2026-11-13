@@ -35,8 +35,24 @@
  *   thinking: { type: "disabled" }                       // 400 on Opus 5.5
  *
  * `budget_tokens` was the old way to cap reasoning and is gone.
- * Depth is controlled by `output_config.effort` instead — which is
- * step 62, the next one along.
+ * Depth is controlled by `output_config.effort` instead, which lives
+ * in server/effort.ts.
+ *
+ * ---------------------------------------------------------------------------
+ * Why the patterns write the field out in full
+ * ---------------------------------------------------------------------------
+ *
+ * Every request literal carries
+ * `thinking: { type: "adaptive", display: thinkingDisplay }` rather
+ * than calling a helper that returns it. The field is sent even when
+ * the display is "omitted", which is also what the API does by
+ * default — so it changes no behaviour, and that is the point: it
+ * puts the parameter in the request body where the activity log will
+ * show it. A setting you cannot see in the logged request is a
+ * setting a learner has to take on trust.
+ *
+ * `type: "adaptive"` lets Claude decide how much to think per
+ * request. It is the only on-mode these models accept.
  */
 
 /**
@@ -78,23 +94,4 @@ export const THINKING_OPTIONS: ThinkingOption[] = [
 /** Narrows an unknown value from the browser to a display setting. */
 export function parseThinkingDisplay(value: unknown): ThinkingDisplay {
   return value === "summarized" ? "summarized" : "omitted";
-}
-
-/**
- * The `thinking` field to spread into a request.
- *
- * Always returns the field, never nothing. Omitting `thinking`
- * entirely gives adaptive thinking with display "omitted" on these
- * models, so sending it explicitly changes no behaviour — but it does
- * put the parameter in the request body, where the activity log will
- * show it. A setting you cannot see in the logged request is a setting
- * a learner has to take on trust.
- *
- * `type: "adaptive"` lets Claude decide how much to think per request.
- * It is the only on-mode these models accept.
- */
-export function thinkingConfig(display: ThinkingDisplay): {
-  thinking: { type: "adaptive"; display: ThinkingDisplay };
-} {
-  return { thinking: { type: "adaptive", display } };
 }

@@ -1,7 +1,7 @@
 /**
  * effort.ts — how hard the model works before answering.
  *
- * Step 61 added a switch for whether you can READ the reasoning.
+ * server/thinking.ts controls whether you can READ the reasoning.
  * This one controls how much of it there is.
  *
  * ---------------------------------------------------------------------------
@@ -40,6 +40,21 @@
  * which model a role is assigned, which is exactly the sort of
  * difference that makes a cost comparison lie if you do not know
  * about it. This app sends the level explicitly for that reason.
+ *
+ * ---------------------------------------------------------------------------
+ * output_config holds more than the effort
+ * ---------------------------------------------------------------------------
+ *
+ * Every request literal writes `output_config: { effort }` in full
+ * rather than calling a helper, so the parameter is visible in the
+ * code and in the logged request.
+ *
+ * The two patterns that use structured outputs write
+ * `output_config: { format: ..., effort }` — ONE object with both
+ * keys. This is the trap worth knowing: a request cannot carry two
+ * `output_config` keys and have them merge. The second silently
+ * replaces the first, so writing the format and the effort as
+ * separate keys loses whichever came first.
  */
 
 /** The five levels the current models accept, cheapest first. */
@@ -109,28 +124,4 @@ export function parseEffort(value: unknown): Effort {
   return typeof value === "string" && VALID.has(value)
     ? (value as Effort)
     : DEFAULT_EFFORT;
-}
-
-/**
- * The `output_config` field to spread into a request.
- *
- * Takes any `output_config` the caller already has, so a request using
- * structured outputs keeps its `format` and gains an `effort`. Spread
- * naively, `...effortConfig(e)` after an `output_config: { format }`
- * would silently drop the format — a bug worth designing out rather
- * than remembering.
- */
-export function withEffort<T extends object | undefined = undefined>(
-  effort: Effort,
-  existing?: T,
-): { output_config: T & { effort: Effort } } {
-  // Generic rather than Record<string, unknown>: messages.parse()
-  // infers what it returns from the TYPE of output_config.format, and
-  // widening that to `unknown` makes parsed_output come back as null.
-  // The compiler caught exactly that when this was written loosely.
-  return {
-    output_config: { ...(existing as object), effort } as T & {
-      effort: Effort;
-    },
-  };
 }
