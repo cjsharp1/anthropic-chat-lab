@@ -33,8 +33,22 @@
  * and separating them is what makes the cost of tool use visible —
  * select this pattern, ask something needing a tool, and watch the
  * conversation fail to complete.
+ *
+ * ---------------------------------------------------------------------------
+ * How this file is arranged
+ * ---------------------------------------------------------------------------
+ *
+ * Two halves, the same way tool-loop.ts is arranged. `run` is the
+ * request and the response; below it, under its own banner, are the
+ * functions that build the activity-log rows.
+ *
+ * It matters more here than anywhere else that `run` is short. This is
+ * the first pattern a learner opens, and if the simplest possible use
+ * of the API does not fit on a screen, nothing after it will look
+ * simple either.
  */
 
+import type Anthropic from "@anthropic-ai/sdk";
 import { client, MAX_TOKENS } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
@@ -45,10 +59,16 @@ import {
   withCachedSystem,
   withCachedTools,
 } from "../../caching.js";
-import { formatCost, snippet, summariseUsage } from "../../usage.js";
+import {
+  formatCost,
+  snippet,
+  summariseUsage,
+  type UsageSummary,
+} from "../../usage.js";
 import { thinkingConfig } from "../../thinking.js";
 import { withEffort } from "../../effort.js";
 import type { Pattern, PatternContext, PatternResult } from "../types.js";
+import type { Logger } from "../../logger.js";
 
 export const singleCall: Pattern = {
   id: "single-call",
@@ -150,16 +170,7 @@ export const singleCall: Pattern = {
       ...withEffort(effort),
     };
 
-    log.api(
-      `Calling ${producing} · ${messages.length} message(s)`,
-      { request },
-      {
-        direction: "out",
-        iteration: 1,
-        actor: "app",
-        because: "the user sent a message",
-      },
-    );
+    logRequest(log, producing, messages, request);
 
     const started = Date.now();
 
@@ -196,62 +207,12 @@ export const singleCall: Pattern = {
 
     const usage = summariseUsage(response.usage, response.model);
 
-    log.api(
-      `${usage.totalInput} in / ${usage.output} out · ` +
-        `${formatCost(usage.cost)} · ${elapsed}ms · ` +
-        `${response.stop_reason} · ${snippet(text)}`,
-      {
-        iteration: 1,
-        elapsed_ms: elapsed,
-        estimated_cost: formatCost(usage.cost),
-        response: {
-          id: response.id,
-          model: response.model,
-          role: response.role,
-          stop_reason: response.stop_reason,
-          stop_sequence: response.stop_sequence,
-          content: response.content,
-          usage: response.usage,
-        },
-        tokens: {
-          input: usage.input,
-          output: usage.output,
-          cache_read: usage.cacheRead,
-          cache_write: usage.cacheWrite,
-          total_input: usage.totalInput,
-        },
-        // What caching did, in words. The raw numbers above are
-        // the ones in the documentation, but they do not say which
-        // of three states this request was in, and the three look
-        // similar until you know what to compare.
-        caching: {
-          hit_rate: `${Math.round(usage.cacheHitRate * 100)}%`,
-          read_from_cache: usage.cacheRead,
-          written_to_cache: usage.cacheWrite,
-          fresh: usage.input,
-          what_happened: describeCacheOutcome(usage),
-        },
-      },
-      {
-        direction: "in",
-        iteration: 1,
-        actor: "claude",
-        because: `the request completed with stop_reason "${response.stop_reason}"`,
-      },
-    );
+    logResponse(log, usage, elapsed, response, text);
 
     // Truncation returns HTTP 200 and reads like a normal reply, so
     // nothing else would surface it.
     if (response.stop_reason === "max_tokens") {
-      log.error(
-        "Reply was truncated: it hit the max_tokens ceiling.",
-        { max_tokens: MAX_TOKENS, output_tokens: usage.output },
-        {
-          iteration: 1,
-          actor: "claude",
-          because: "the reply reached max_tokens before finishing",
-        },
-      );
+      logTruncated(log, usage);
     }
 
     // Claude wanted a tool and this pattern does not run them. Say so
@@ -262,24 +223,7 @@ export const singleCall: Pattern = {
         .filter((block) => block.type === "tool_use")
         .map((block) => block.name);
 
-      // Should now be unreachable: no tools are sent, so there is
-      // nothing for the model to ask for. Kept because "should be"
-      // is not "is", and a tool_use block arriving here would
-      // otherwise produce an empty reply with no explanation.
-      log.error(
-        `Unexpected tool_use from a request that sent no tools: ${wanted.join(", ")}`,
-        {
-          requested: wanted,
-          note:
-            "The request carried no tools array, so this should not " +
-            "happen. If you see it, the request construction has a bug.",
-        },
-        {
-          iteration: 1,
-          actor: "app",
-          because: "the single-call pattern stops after one response",
-        },
-      );
+      logUnexpectedToolUse(log, wanted);
 
       return {
         text:
@@ -294,3 +238,120 @@ export const singleCall: Pattern = {
     return { text, cost: usage.cost, requests: 1 };
   },
 };
+
+// ---------------------------------------------------------------------------
+// Activity-log rows: what the panel shows for each step above
+// ---------------------------------------------------------------------------
+//
+// Everything below builds a log row. None of it changes the request or
+// the reply, which is why it sits here rather than inside run(): this
+// is the first pattern a learner opens, and the one request and one
+// response should be the whole of it.
+//
+// Same arrangement as tool-loop.ts, deliberately. The two files are
+// read together, and a reader who has seen one should recognise the
+// other.
+
+function logRequest(
+  log: Logger,
+  producing: string,
+  messages: Anthropic.MessageParam[],
+  request: Anthropic.MessageCreateParams,
+): void {
+  log.api(
+    `Calling ${producing} · ${messages.length} message(s)`,
+    { request },
+    {
+      direction: "out",
+      iteration: 1,
+      actor: "app",
+      because: "the user sent a message",
+    },
+  );
+}
+
+function logResponse(
+  log: Logger,
+  usage: UsageSummary,
+  elapsed: number,
+  response: Anthropic.Message,
+  text: string,
+): void {
+  log.api(
+    `${usage.totalInput} in / ${usage.output} out · ` +
+      `${formatCost(usage.cost)} · ${elapsed}ms · ` +
+      `${response.stop_reason} · ${snippet(text)}`,
+    {
+      iteration: 1,
+      elapsed_ms: elapsed,
+      estimated_cost: formatCost(usage.cost),
+      response: {
+        id: response.id,
+        model: response.model,
+        role: response.role,
+        stop_reason: response.stop_reason,
+        stop_sequence: response.stop_sequence,
+        content: response.content,
+        usage: response.usage,
+      },
+      tokens: {
+        input: usage.input,
+        output: usage.output,
+        cache_read: usage.cacheRead,
+        cache_write: usage.cacheWrite,
+        total_input: usage.totalInput,
+      },
+      // What caching did, in words. The raw numbers above are
+      // the ones in the documentation, but they do not say which
+      // of three states this request was in, and the three look
+      // similar until you know what to compare.
+      caching: {
+        hit_rate: `${Math.round(usage.cacheHitRate * 100)}%`,
+        read_from_cache: usage.cacheRead,
+        written_to_cache: usage.cacheWrite,
+        fresh: usage.input,
+        what_happened: describeCacheOutcome(usage),
+      },
+    },
+    {
+      direction: "in",
+      iteration: 1,
+      actor: "claude",
+      because: `the request completed with stop_reason "${response.stop_reason}"`,
+    },
+  );
+}
+
+function logTruncated(log: Logger, usage: UsageSummary): void {
+  log.error(
+    "Reply was truncated: it hit the max_tokens ceiling.",
+    { max_tokens: MAX_TOKENS, output_tokens: usage.output },
+    {
+      iteration: 1,
+      actor: "claude",
+      because: "the reply reached max_tokens before finishing",
+    },
+  );
+}
+
+
+// Should now be unreachable: no tools are sent, so there is
+// nothing for the model to ask for. Kept because "should be"
+// is not "is", and a tool_use block arriving here would
+// otherwise produce an empty reply with no explanation.
+function logUnexpectedToolUse(log: Logger, wanted: string[]): void {
+  log.error(
+    `Unexpected tool_use from a request that sent no tools: ${wanted.join(", ")}`,
+    {
+      requested: wanted,
+      note:
+        "The request carried no tools array, so this should not " +
+        "happen. If you see it, the request construction has a bug.",
+    },
+    {
+      iteration: 1,
+      actor: "app",
+      because: "the single-call pattern stops after one response",
+    },
+  );
+}
