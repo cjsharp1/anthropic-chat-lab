@@ -1232,19 +1232,8 @@ interface KeyStatus {
   source: "env" | "settings" | null;
 }
 
-/**
- * Whether a key is currently set, for callers that need to know before
- * sending. Read through a function rather than exported directly, because an
- * exported `let` cannot be reassigned by another module.
- */
-let keyIsSet = false;
-
 /** The last status the server reported, for restoring the hint. */
 let lastKeyStatus: KeyStatus | null = null;
-
-export function hasApiKey(): boolean {
-  return keyIsSet;
-}
 
 /**
  * Paints the status line, the banner and the Clear button from one status.
@@ -1253,8 +1242,6 @@ export function hasApiKey(): boolean {
  * UI cannot disagree about whether a key is set.
  */
 function renderKeyStatus(status: KeyStatus): void {
-  keyIsSet = status.set;
-
   // Kept so the "not saved yet" hint can put the real status back when
   // the field is emptied again, without re-asking the server.
   lastKeyStatus = status;

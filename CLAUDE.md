@@ -135,7 +135,11 @@ cannot be an error: the tools are not ours and cannot be renamed.
 
 ## Model IDs
 
-Defined once in `server/anthropic.ts` as `MODEL` and `SMALL_MODEL`.
+`MODEL` is defined in `server/anthropic.ts` and used by
+`scripts/hello-claude.ts`. The app's own per-role model ids — the
+`deciding`, `producing` and `judging` roles the patterns read — live
+in `server/models.ts`.
+
 **Model IDs are complete as written — never append a date suffix**,
 which returns a 404. Pricing in `server/usage.ts` is hard-coded and
 will go out of date; it is illustrative, not authoritative.

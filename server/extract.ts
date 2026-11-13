@@ -41,7 +41,7 @@ import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { client } from "./anthropic.js";
 import { summariseUsage } from "./usage.js";
-import { silentLogger, type Logger } from "./logger.js";
+import type { Logger } from "./logger.js";
 
 /**
  * What to extract from a message.
@@ -106,7 +106,7 @@ export interface ExtractionResult {
 export async function extractFields(
   message: string,
   model: string,
-  log: Logger = silentLogger,
+  log: Logger,
 ): Promise<ExtractionResult> {
   const started = Date.now();
 

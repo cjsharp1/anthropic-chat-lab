@@ -30,15 +30,6 @@ import { getKey } from "./api-key.js";
 export const MODEL = "claude-opus-5-5";
 
 /**
- * A cheaper, faster model for work that does not need the main one.
- *
- * Used by the routing pattern (step 51), where a small model classifies the
- * question and the main model answers it. Seeing both token bills side by side
- * in the log panel is the point of that exercise.
- */
-export const SMALL_MODEL = "claude-haiku-5-5";
-
-/**
  * Default output ceiling for a single response.
  *
  * This is a hard cap the model is not aware of: hitting it truncates the reply

@@ -163,7 +163,7 @@ export const evaluator: Pattern = {
         "Deliberately vague. Watch for a FAIL verdict in round one — " +
         "expand it to read which criterion failed and what the " +
         "evaluator told the writer to fix.",
-      kind: "good-fit" as const,
+      kind: "good-fit",
     },
     {
       prompt: "Say hello.",
@@ -171,7 +171,7 @@ export const evaluator: Pattern = {
         "Nothing to evaluate against criteria about API fields and " +
         "completeness. It passes on round one, and the second call was " +
         "pure ceremony.",
-      kind: "poor-fit" as const,
+      kind: "poor-fit",
     },
   ],
 

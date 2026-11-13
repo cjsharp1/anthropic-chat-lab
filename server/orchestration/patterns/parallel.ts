@@ -147,7 +147,7 @@ export const parallel: Pattern = {
         "Three branches start together and finish out of order. The " +
         "summary row compares the wall clock with the sum — measured at " +
         "8.6 seconds for 21.9 seconds of work.",
-      kind: "good-fit" as const,
+      kind: "good-fit",
     },
     {
       prompt: "What is the exact model id for Claude Opus 5.5?",
@@ -155,7 +155,7 @@ export const parallel: Pattern = {
         "A one-fact question split three ways. Expand each branch and " +
         "watch two of them pad, because the fixed aspects do not fit. " +
         "Four requests for something a single call answers in one.",
-      kind: "poor-fit" as const,
+      kind: "poor-fit",
     },
   ],
 

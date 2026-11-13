@@ -1114,8 +1114,7 @@ app.listen(PORT, () => {
   // the UI an hour later.
   console.log(`\n  ${TOOLS.length} tools registered:`);
   for (const tool of TOOLS) {
-    const where = tool.executedBy === "server" ? "server-side" : "";
-    console.log(`    ${tool.name.padEnd(18)} ${where}`);
+    console.log(`    ${tool.name}`);
   }
   console.log("");
 });

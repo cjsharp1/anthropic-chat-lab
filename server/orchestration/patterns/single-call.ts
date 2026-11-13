@@ -80,7 +80,7 @@ export const singleCall: Pattern = {
         "One request, one response, about two seconds. This is the " +
         "baseline — note the cost, then try the same question under " +
         "Prompt chaining and compare.",
-      kind: "good-fit" as const,
+      kind: "good-fit",
     },
     {
       prompt: "What is 847293 times 61847?",
@@ -88,7 +88,7 @@ export const singleCall: Pattern = {
         "Claude asks for the calculator and this pattern refuses to run " +
         "it, then says so. Enable the calculator in the Tools tab first " +
         "to see the refusal.",
-      kind: "poor-fit" as const,
+      kind: "poor-fit",
     },
   ],
 

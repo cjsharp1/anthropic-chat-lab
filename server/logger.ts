@@ -2,21 +2,23 @@
  * logger.ts — builds the events that fill the activity panel.
  *
  * Every part of the server that does something worth watching takes a
- * Logger and calls one of its four methods. The logger builds a
- * well-formed LogEvent and hands it to whatever `emit` function it was
- * given.
+ * Logger and calls one of its five methods — info, api, tool, warn,
+ * error. The logger builds a well-formed LogEvent and hands it to
+ * whatever `emit` function it was given.
  *
  * That indirection is the whole design. The code doing the work does not
  * know or care where its events go:
  *
  *   in a request    emit writes to the browser's open SSE connection
  *   in a test       emit pushes onto an array you then assert against
- *   in a script     emit is console.log
  *
- * This matters because from step 46 the orchestration patterns all take
- * a logger. A pattern should be runnable from a test or a script without
- * an HTTP response object existing at all — if patterns wrote to `res`
+ * This matters because the orchestration patterns all take a logger. A
+ * pattern should be runnable from a test or a script without an HTTP
+ * response object existing at all — if patterns wrote to `res`
  * directly, they could only ever run inside a live request.
+ *
+ * `makeLogger(emit)` is the only thing this file exports beyond the
+ * types: one builder, and the caller decides where the events go.
  */
 
 import type { LogDirection, LogEvent, LogLevel } from "./types.js";
@@ -116,61 +118,3 @@ export function makeLogger(
     error: (label, detail, context) => send("error", label, detail, context),
   };
 }
-
-/**
- * Returns a logger that adds the given context to everything it emits.
- *
- * Used by the request handler to stamp an iteration number onto every
- * row produced during that pass, without touching any of the call sites
- * inside it.
- */
-export function withContext(base: Logger, context: LogContext): Logger {
-  return {
-    info: (label, detail, extra) => base.info(label, detail, { ...context, ...extra }),
-    api: (label, detail, extra) => base.api(label, detail, { ...context, ...extra }),
-    tool: (label, detail, extra) => base.tool(label, detail, { ...context, ...extra }),
-    warn: (label, detail, extra) => base.warn(label, detail, { ...context, ...extra }),
-    error: (label, detail, extra) => base.error(label, detail, { ...context, ...extra }),
-  };
-}
-
-/**
- * A logger that discards everything.
- *
- * Useful when a function needs a logger but the caller has nowhere
- * sensible to send events — a unit test that does not care about
- * logging, say. Having this means a Logger parameter can stay required
- * rather than optional, so no code has to be written defensively around
- * `log?.info(...)`.
- */
-export const silentLogger: Logger = makeLogger(() => {});
-
-/**
- * A logger that prints to the terminal, for scripts and for debugging.
- *
- * Deliberately separate from the real one: the browser panel and the
- * terminal want different formatting, and conflating them would mean
- * neither reads well.
- */
-export const consoleLogger: Logger = makeLogger((event) => {
-  const time = new Date(event.at).toISOString().slice(11, 23); // HH:MM:SS.mmm
-  const level = event.level.toUpperCase().padEnd(5);
-  const where = event.iteration ? `[${event.iteration}] ` : "    ";
-  console.log(`${time}  ${level}  ${where}${event.label}`);
-
-  if (event.because) {
-    console.log(`                      because ${event.because}`);
-  }
-
-  // Indent the detail under its label so a multi-line object stays
-  // readable.
-  if (event.detail !== undefined) {
-    const text = JSON.stringify(event.detail, null, 2) ?? String(event.detail);
-    console.log(
-      text
-        .split("\n")
-        .map((line) => "                      " + line)
-        .join("\n"),
-    );
-  }
-});

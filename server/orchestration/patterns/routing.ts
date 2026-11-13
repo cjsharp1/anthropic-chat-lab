@@ -195,7 +195,7 @@ export const routing: Pattern = {
         "Routes to Debugging. Then ask \"what is max_tokens?\" — same " +
         "topic, routes to Concept, and the answers are shaped " +
         "differently. That difference is the pattern working.",
-      kind: "good-fit" as const,
+      kind: "good-fit",
     },
     {
       prompt: "Explain tool use, show me the code, and tell me what it costs.",
@@ -203,7 +203,7 @@ export const routing: Pattern = {
         "Spans three categories, so it routes to General rather than " +
         "being forced into one. A router without that escape hatch would " +
         "pick one and answer worse than a general prompt would have.",
-      kind: "poor-fit" as const,
+      kind: "poor-fit",
     },
   ],
 

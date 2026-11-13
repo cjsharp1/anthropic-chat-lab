@@ -55,13 +55,19 @@ export const TOOLS: AnyLabTool[] = [
 ];
 
 /**
- * Tools indexed by name, for the executor to look up what Claude asked for.
+ * The local tools indexed by name.
  *
  * Built once from TOOLS rather than searched each time. A Map also makes
- * the "unknown tool" case explicit: `get` returns undefined, which step 40
- * has to handle, rather than a find() that silently returns nothing.
+ * the "unknown tool" case explicit: `get` returns undefined, which the
+ * caller has to handle, rather than a find() that silently returns
+ * nothing.
+ *
+ * Not exported, deliberately. It is fixed at import time and cannot see
+ * a tool borrowed over MCP, so a caller that reached for it directly
+ * would miss them — `findTool()` below is the one every call site
+ * should use.
  */
-export const TOOLS_BY_NAME = new Map<string, AnyLabTool>(
+const TOOLS_BY_NAME = new Map<string, AnyLabTool>(
   TOOLS.map((tool) => [tool.name, tool]),
 );
 

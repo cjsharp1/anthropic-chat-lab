@@ -91,7 +91,7 @@ export const toolLoop: Pattern = {
         "Three requests. Watch the message count go 1, 3, 5 — the whole " +
         "conversation is resent each round, which is why input tokens " +
         "climb. Enable search_docs and calculator first.",
-      kind: "good-fit" as const,
+      kind: "good-fit",
     },
     {
       prompt: "What time is it in London and in Tokyo?",
@@ -99,7 +99,7 @@ export const toolLoop: Pattern = {
         "Two tool calls dispatched at once, finishing out of order. The " +
         "wall clock is the slowest one, not the sum. Enable " +
         "get_current_time first.",
-      kind: "good-fit" as const,
+      kind: "good-fit",
     },
   ],
 

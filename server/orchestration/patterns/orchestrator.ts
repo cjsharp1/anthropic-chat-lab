@@ -208,7 +208,7 @@ export const orchestrator: Pattern = {
         "Expand the plan row to see the subtasks Claude chose — they " +
         "follow the question rather than a template. Then try the same " +
         "question under Parallelisation and compare the splits.",
-      kind: "good-fit" as const,
+      kind: "good-fit",
     },
     {
       prompt: "What does the tool_use_id field do?",
@@ -216,7 +216,7 @@ export const orchestrator: Pattern = {
         "The planner should return a single subtask, because there is " +
         "nothing to divide. Three requests to answer what one would " +
         "have, and the plan says so.",
-      kind: "poor-fit" as const,
+      kind: "poor-fit",
     },
   ],
 

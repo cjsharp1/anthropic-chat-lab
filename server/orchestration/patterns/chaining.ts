@@ -116,7 +116,7 @@ export const chaining: Pattern = {
         "Expand the planning row to read the outline Claude wrote for " +
         "itself. The answer that follows should track it section by " +
         "section.",
-      kind: "good-fit" as const,
+      kind: "good-fit",
     },
     {
       prompt: "What does stop_reason max_tokens mean?",
@@ -124,7 +124,7 @@ export const chaining: Pattern = {
         "The planner replies that this is simple enough to answer in a " +
         "sentence, and the app flags it. Measured at eight times the " +
         "cost of a single call for the same answer.",
-      kind: "poor-fit" as const,
+      kind: "poor-fit",
     },
   ],
 

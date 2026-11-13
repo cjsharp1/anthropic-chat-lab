@@ -2083,5 +2083,3 @@ void initEffort();
 initPresets();
 refreshSessionCost();
 
-
-console.log("frontend loaded");
