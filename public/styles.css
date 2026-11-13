@@ -3118,19 +3118,36 @@ h6.md-heading {
 .tool-badge.badge-server { background: var(--level-api); }
 .tool-badge.badge-mcp { background: var(--level-tool); }
 
+/* The section follows the dialog's own spacing rather than inventing
+   its own. Everything else in a tab panel is inset by --gap, and this
+   was flush to the edge — so the heading, the fields and the status
+   line all started a centimetre left of the paragraph above them.
+
+   The border-top spans the full width deliberately, the way
+   .panel-intro's border-bottom does: the rule separates sections, so
+   it should reach the edges even though the text does not. */
 #mcp-section {
-  margin-top: 1.5rem;
-  padding-top: 1.1rem;
+  margin-top: 1.2rem;
   border-top: 1px solid var(--border);
 }
 
 .mcp-heading {
-  margin: 0 0 0.3rem;
+  margin: 0;
+  padding: 0.7rem var(--gap) 0;
   font-family: var(--font-ui);
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--fg);
+}
+
+/* The intro paragraph inside this section uses .panel-intro, which
+   already carries --gap padding and a bottom border. Its border would
+   cut the section in half here, so it is dropped — the heading above
+   already separates this from what precedes it. */
+#mcp-section .panel-intro {
+  border-bottom: none;
+  padding-top: 0.35rem;
 }
 
 .mcp-controls {
@@ -3138,7 +3155,8 @@ h6.md-heading {
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 0.6rem;
-  margin: 0.7rem 0 0.6rem;
+  padding: 0 var(--gap);
+  margin: 0 0 0.6rem;
 }
 
 .mcp-field {
@@ -3169,9 +3187,9 @@ h6.md-heading {
   display: none !important;
 }
 
-/* The URL field takes the slack, so a long endpoint stays readable
-   while the transport selector keeps its natural width. */
-#mcp-url-field, #mcp-command-field { flex: 1 1 18rem; }
+/* The URL and Command fields take the slack, so a long endpoint stays
+   readable while the transport selector keeps its natural width. */
+#mcp-url-field, #mcp-command-field { flex: 1 1 16rem; }
 
 .mcp-label {
   font-family: var(--font-ui);
@@ -3181,6 +3199,7 @@ h6.md-heading {
   color: var(--fg-dim);
 }
 
+/* Matched to the dialog's other inputs rather than styled afresh. */
 .mcp-field select,
 .mcp-field input {
   padding: 0.3rem 0.45rem;
@@ -3210,6 +3229,12 @@ h6.md-heading {
   color: var(--accent);
 }
 .mcp-buttons button:disabled { opacity: 0.5; cursor: default; }
+
+/* Inset to match, and given room below so it does not sit against the
+   bottom of the scrolling panel. */
+#mcp-status {
+  padding: 0 var(--gap) 1rem;
+}
 
 /* A failed connection. Red, because the thing that was asked for did
    not happen — the same test the log's levels use. */
