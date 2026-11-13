@@ -1239,6 +1239,9 @@ interface KeyStatus {
  */
 let keyIsSet = false;
 
+/** The last status the server reported, for restoring the hint. */
+let lastKeyStatus: KeyStatus | null = null;
+
 export function hasApiKey(): boolean {
   return keyIsSet;
 }
@@ -1251,6 +1254,10 @@ export function hasApiKey(): boolean {
  */
 function renderKeyStatus(status: KeyStatus): void {
   keyIsSet = status.set;
+
+  // Kept so the "not saved yet" hint can put the real status back when
+  // the field is emptied again, without re-asking the server.
+  lastKeyStatus = status;
 
   apiKeyStatus.classList.remove("is-error");
 
@@ -1282,6 +1289,42 @@ function renderKeyError(message: string): void {
   apiKeyStatus.classList.remove("is-ok");
   apiKeyStatus.classList.add("is-error");
   apiKeyStatus.textContent = message;
+}
+
+/**
+ * Warns while a typed key has not been sent yet.
+ *
+ * This control is the only one on the page with a Save button, because
+ * it is the only one whose value goes to the server rather than to
+ * localStorage -- and a network write can fail where a local one
+ * cannot. See the block comment above.
+ *
+ * That asymmetry is defensible; what was not is that nothing showed it.
+ * The status line kept reporting the key the SERVER holds while a
+ * different, half-typed one sat in the field, so the control looked
+ * like every other setting right up until the moment it turned out not
+ * to have saved anything.
+ */
+export function watchApiKeyInput(): void {
+  apiKeyInput.addEventListener("input", () => {
+    const typed = apiKeyInput.value.trim() !== "";
+
+    // Typing a key changes nothing until Save is pressed, and the status
+    // line underneath went on saying "Key loaded from .env" while a
+    // half-typed replacement sat in the box. That is the actual
+    // misleading part of this control: not that Save exists, but that
+    // nothing said the field and the server disagreed.
+    if (typed) {
+      apiKeyStatus.classList.remove("is-ok", "is-error");
+      apiKeyStatus.textContent =
+        "Not saved yet — press Save to send this key to the server.";
+      return;
+    }
+
+    // Emptied again: restore whatever the server last told us, rather
+    // than leaving the warning up for a field that no longer differs.
+    if (lastKeyStatus) renderKeyStatus(lastKeyStatus);
+  });
 }
 
 /**

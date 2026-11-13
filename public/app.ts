@@ -423,6 +423,7 @@ import {
   handleThinkingChange,
   handleToolChoiceChange,
   initApiKey,
+  watchApiKeyInput,
   initCacheModes,
   initEffort,
   initModels,
@@ -824,6 +825,32 @@ const settingsDialogClose = document.getElementById(
 function openSettings(tab?: "tab-tools" | "tab-settings"): void {
   if (!settingsDialog.open) settingsDialog.showModal();
   if (tab) showTab(tab);
+}
+
+/**
+ * Opens settings with the API key field in view and focused.
+ *
+ * The banner's whole job is to lead to this one control, and the
+ * control is now the last thing in the panel rather than the first.
+ * Opening the dialog at the top and leaving the reader to scroll
+ * would make the banner's button a hint rather than an action.
+ *
+ * Focus is what actually matters here; the scroll is what makes the
+ * focus visible. focus() alone scrolls the field into view in every
+ * current browser, but it aligns it to the nearest edge, which puts
+ * it hard against the bottom of the dialog. scrollIntoView first,
+ * centred, then focus with preventScroll so it does not immediately
+ * undo that.
+ */
+function openApiKeySetting(): void {
+  openSettings("tab-settings");
+
+  // After the dialog has laid out: a field inside a dialog that was
+  // display:none a moment ago has no position to scroll to yet.
+  requestAnimationFrame(() => {
+    apiKeyField.scrollIntoView({ block: "center", behavior: "smooth" });
+    apiKeyField.focus({ preventScroll: true });
+  });
 }
 
 // --- A/B comparison ---------------------------------------------------------
@@ -2001,8 +2028,13 @@ apiKeyField.addEventListener("keydown", (event) => {
 });
 apiKeyClearButton.addEventListener("click", () => void clearApiKey());
 
+// Says "not saved yet" while the field holds a key the server has not
+// been sent. Without it the status line below the input goes on
+// describing the server's key while a different one sits in the box.
+watchApiKeyInput();
+
 // The banner's only job is to lead to the setting that dismisses it.
-apiKeyBannerOpen.addEventListener("click", () => openSettings("tab-settings"));
+apiKeyBannerOpen.addEventListener("click", openApiKeySetting);
 
 logClearButton.addEventListener("click", clearLog);
 sessionClearButton.addEventListener("click", clearChat);

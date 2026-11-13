@@ -226,50 +226,6 @@
         shows the field you just altered.
       </p>
 
-      <!-- Group zero: the credential.
-
-           First, because nothing below it works without this. The key
-           is sent to this app's own server and held there in memory —
-           it is deliberately NOT saved in the browser, which is the
-           same reason the chat itself goes through the server rather
-           than calling Anthropic from the page. -->
-      <div class="setting-group">
-        <h3 class="setting-group-title">API key</h3>
-
-        <div class="setting">
-          <label for="api-key-input">Anthropic API key</label>
-
-          <div id="api-key-row">
-            <!-- type="password" so the key is not readable on a
-                 projector or in a screen share. -->
-            <input
-              type="password"
-              id="api-key-input"
-              placeholder="sk-ant-..."
-              autocomplete="off"
-              spellcheck="false"
-            />
-            <button type="button" id="api-key-save">Save</button>
-            <button type="button" id="api-key-clear" class="link-button">
-              Clear
-            </button>
-          </div>
-
-          <div class="setting-help" id="api-key-status">Checking…</div>
-
-          <p class="setting-note">
-            Get a key from
-            <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">
-              console.anthropic.com</a>.
-            It is held in the server's memory for as long as the server
-            runs, and is never stored in your browser — so it is gone
-            when you stop the server. To skip retyping it, put
-            <code>ANTHROPIC_API_KEY</code> in a <code>.env</code> file
-            instead; that file is git-ignored.
-          </p>
-        </div>
-      </div>
-
       <!-- Group one: how the app structures its calls.
 
            The pattern and the model roles are presented together, and
@@ -405,6 +361,72 @@
             models — must use one. Forced tool use was removed on
             current models, and the two options marked "removed" return
             a 400 so you can see it.
+          </p>
+        </div>
+      </div>
+
+      <!-- Last group: the credential.
+
+           At the bottom because it is set once and then left alone,
+           where everything above it is changed from run to run. It
+           led the panel for a while on the reasoning that nothing
+           works without it — true, but that is an argument about
+           order of operations on the first run, not about what
+           belongs at the top of a panel you reopen all day. Someone
+           with a key in .env never needs to touch this at all, and it
+           was the first thing they saw every time.
+
+           Anyone who has NOT set a key still gets led here directly:
+           the setup banner's "Add a key" button opens this panel, and
+           the browser scrolls to the field it focuses.
+
+           The key is sent to this app's own server and held there in
+           memory — it is deliberately NOT saved in the browser, which
+           is the same reason the chat itself goes through the server
+           rather than calling Anthropic from the page. -->
+      <div class="setting-group">
+        <h3 class="setting-group-title">API key</h3>
+
+        <div class="setting">
+          <label for="api-key-input">Anthropic API key</label>
+
+          <div id="api-key-row">
+            <!-- type="password" so the key is not readable on a
+                 projector or in a screen share. -->
+            <input
+              type="password"
+              id="api-key-input"
+              placeholder="sk-ant-..."
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <button type="button" id="api-key-save">Save</button>
+            <button type="button" id="api-key-clear" class="link-button">
+              Clear
+            </button>
+          </div>
+
+          <div class="setting-help" id="api-key-status">Checking…</div>
+
+          <p class="setting-note">
+            <strong>This is the only setting with a Save button.</strong>
+            Every other setting on this page saves itself the moment you
+            change it, by writing to your browser's local storage. A key
+            written there would be readable by any script on the page, so
+            this one is sent to the server instead and held in memory —
+            and a send can fail, which is what Save and the message above
+            are for.
+          </p>
+
+          <p class="setting-note">
+            Get a key from
+            <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">
+              console.anthropic.com</a>.
+            It is held in the server's memory for as long as the server
+            runs, and is never stored in your browser — so it is gone
+            when you stop the server. To skip retyping it, put
+            <code>ANTHROPIC_API_KEY</code> in a <code>.env</code> file
+            instead; that file is git-ignored.
           </p>
         </div>
       </div>
