@@ -81,7 +81,7 @@ export const SERVER_TOOLS: ServerTool[] = [
       type: "web_search_20260209",
       name: "web_search",
       max_uses: MAX_SEARCHES,
-    } as Anthropic.ToolUnion,
+    },
     examplePrompt:
       "Search the web for the current Bank of England base rate.",
     exampleWatch:
@@ -109,19 +109,19 @@ export const SERVER_TOOLS_BY_NAME = new Map<string, ServerTool>(
  * Absent on a response that used none, so defaulted rather than
  * assumed — the same reason the cache fields are defaulted in
  * usage.ts.
+ *
+ * The SDK types `server_tool_use` as `ServerToolUsage | null`, which
+ * is why it is read with optional chaining rather than a cast. The
+ * two counts inside it are plain numbers, not optional: it is the
+ * whole object that is missing when no server tool ran, not the
+ * fields within it.
  */
 export function serverToolCounts(usage: Anthropic.Usage): {
   searches: number;
   fetches: number;
 } {
-  const raw = (usage as unknown as Record<string, unknown>)["server_tool_use"];
-  const counts = (raw ?? {}) as {
-    web_search_requests?: number;
-    web_fetch_requests?: number;
-  };
-
   return {
-    searches: counts.web_search_requests ?? 0,
-    fetches: counts.web_fetch_requests ?? 0,
+    searches: usage.server_tool_use?.web_search_requests ?? 0,
+    fetches: usage.server_tool_use?.web_fetch_requests ?? 0,
   };
 }
