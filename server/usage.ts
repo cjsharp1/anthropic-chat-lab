@@ -21,14 +21,44 @@ import type Anthropic from "@anthropic-ai/sdk";
  * the current rates at https://www.anthropic.com/pricing
  *
  * Cached input is much cheaper than fresh input, which is the entire point
- * of prompt caching in step 58. Having both numbers here is what makes that
- * saving visible when it arrives.
+ * of prompt caching — see server/caching.ts. Having both numbers here is
+ * what makes that saving visible when it arrives.
+ *
+ * Prices are written in three places, and they must change together:
+ *
+ *   here                      what the activity log and the cost figures use
+ *   server/models.ts          inputPrice / outputPrice, shown in Settings
+ *   scripts/hello-claude.ts   two literals, for a script with no server
+ *
+ * Nothing enforces that. A rate changed here and nowhere else gives a
+ * Settings panel that disagrees with the log on the same request.
  */
 const PRICING: Record<string, { input: number; output: number; cacheRead: number }> = {
   "claude-opus-5-5": { input: 4, output: 20, cacheRead: 0.2 },
   "claude-sonnet-5-5": { input: 2, output: 10, cacheRead: 0.2 },
   "claude-haiku-5-5": { input: 0.1, output: 0.5, cacheRead: 0.01 },
 };
+
+/**
+ * The published rates for a model, falling back to Opus.
+ *
+ * The one way this file turns a model id into rates. Both callers go
+ * through it — summariseUsage for a single response, CacheTally for a
+ * running total — so the fallback cannot be applied in one place and
+ * forgotten in the other.
+ *
+ * Falling back rather than returning zero is deliberate: an unknown
+ * model should produce an indicative figure, because silently
+ * reporting $0.00 reads as "this was free" rather than "this is not
+ * priced here".
+ */
+function pricingFor(model: string): {
+  input: number;
+  output: number;
+  cacheRead: number;
+} {
+  return PRICING[model] ?? PRICING["claude-opus-5-5"]!;
+}
 
 /** A flattened, named view of one response's token usage. */
 export interface UsageSummary {
@@ -66,10 +96,7 @@ export function summariseUsage(
 
   const totalInput = input + cacheRead + cacheWrite;
 
-  // Fall back to Opus pricing for an unknown model, so the number is
-  // indicative rather than zero — silently reporting $0.00 would be worse
-  // than being slightly wrong.
-  const rates = PRICING[model] ?? PRICING["claude-opus-5-5"]!;
+  const rates = pricingFor(model);
 
   const cost =
     (input / 1_000_000) * rates.input +
@@ -190,13 +217,4 @@ export class CacheTally {
           : (this.wouldHaveBilled - this.billed) / this.wouldHaveBilled,
     };
   }
-}
-
-/** The published rates for a model, falling back to Opus. */
-function pricingFor(model: string): {
-  input: number;
-  output: number;
-  cacheRead: number;
-} {
-  return PRICING[model] ?? PRICING["claude-opus-5-5"]!;
 }

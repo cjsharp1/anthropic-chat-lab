@@ -47,7 +47,14 @@ export type ModelRole = "deciding" | "producing" | "judging";
 export interface ModelOption {
   id: string;
   name: string;
-  /** Per-million-token prices, for the cost estimate in the UI. */
+  /**
+   * Per-million-token prices, for the cost estimate in the UI.
+   *
+   * The same rates appear in `PRICING` in server/usage.ts, which is
+   * what the activity log bills against, and as two literals in
+   * scripts/hello-claude.ts. All three must change together; nothing
+   * checks that they agree.
+   */
   inputPrice: number;
   outputPrice: number;
   /** One line on what this model is for. */

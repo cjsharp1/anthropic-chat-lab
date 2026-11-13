@@ -95,8 +95,15 @@ async function main(): Promise<void> {
   console.log(`input_tokens   ${input_tokens}`);
   console.log(`output_tokens  ${output_tokens}`);
 
-  // A rough cost, so the number means something. Claude Opus 5.5 is
-  // $4 per million input tokens and $20 per million output tokens.
+  // A rough cost, so the number means something. These two numbers are
+  // the rates for MODEL — Claude Opus 5.5, $4 per million input tokens
+  // and $20 per million output tokens.
+  //
+  // Written out rather than imported, because this script is meant to
+  // be readable start to finish without following anything. The same
+  // rates live in `PRICING` in server/usage.ts and in MODEL_OPTIONS in
+  // server/models.ts, and all three must change together.
+  //
   // Published rates change: treat this as indicative, not as billing.
   const cost = (input_tokens / 1_000_000) * 4 + (output_tokens / 1_000_000) * 20;
   console.log(`approx cost    $${cost.toFixed(6)}`);
