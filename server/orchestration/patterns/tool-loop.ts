@@ -30,6 +30,21 @@
  * that keeps asking for tools without converging is a real failure
  * mode, usually caused by a tool whose result does not answer the
  * question it was called for.
+ *
+ * ---------------------------------------------------------------------------
+ * How this file is arranged
+ * ---------------------------------------------------------------------------
+ *
+ * Two halves. `run` is the loop: build a request, send it, read the
+ * response, stop or run the tools, append both turns, go round again.
+ * Below it, under its own banner, are the functions that build the
+ * activity-log rows.
+ *
+ * They are separated because they answer different questions. The loop
+ * is what the API requires; the rows are how this app explains it. When
+ * the two were interleaved the five steps were spread across 560 lines
+ * and one log call ran to 96 of them, so the thing the file exists to
+ * teach was the hardest thing in it to see.
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
@@ -42,11 +57,19 @@ import {
   withCachedHistory,
   withCachedSystem,
   withCachedTools,
+  type CachePlan,
 } from "../../caching.js";
-import { CacheTally, formatCost, snippet, summariseUsage } from "../../usage.js";
+import {
+  CacheTally,
+  formatCost,
+  snippet,
+  summariseUsage,
+  type UsageSummary,
+} from "../../usage.js";
 import { thinkingConfig } from "../../thinking.js";
 import { withEffort } from "../../effort.js";
 import type { Pattern, PatternContext, PatternResult } from "../types.js";
+import type { Logger } from "../../logger.js";
 
 /**
  * How many times the loop may go round before giving up.
@@ -151,22 +174,7 @@ export const toolLoop: Pattern = {
       // Note this is checked at the TOP of the loop. Checking after the
       // call would allow one more request than the cap allows.
       if (iteration > MAX_TOOL_ITERATIONS) {
-        log.error(
-          `Stopped after ${MAX_TOOL_ITERATIONS} iterations — the loop was not ` +
-            "finishing on its own",
-          {
-            note:
-              "Claude kept asking for tools. Common causes: a tool whose " +
-              "result does not actually answer the question, a tool that " +
-              "keeps failing, or an ambiguous request. The cap is what " +
-              "stops this costing money indefinitely.",
-          },
-          {
-            iteration,
-            actor: "app",
-            because: `the loop reached its ${MAX_TOOL_ITERATIONS}-iteration limit`,
-          },
-        );
+        logIterationCap(log, iteration);
 
         finalText =
           finalText ||
@@ -177,15 +185,6 @@ export const toolLoop: Pattern = {
 
       // --- One request -------------------------------------------------------
 
-      // The complete request body, on every iteration.
-      //
-      // An earlier version logged the full body on the first request and
-      // only a summary on later ones, which hid the most interesting
-      // request in the exchange: the one carrying the tool results back,
-      // where you can see the assistant turn with its tool_use block and
-      // the user turn with the matching tool_result. Logging a summary
-      // there answered a question nobody was asking.
-      //
       // Two things are worth looking for in this object:
       //
       //   messages  grows by two every iteration — the assistant turn and
@@ -196,10 +195,12 @@ export const toolLoop: Pattern = {
       //             registration step; the API keeps no memory of what
       //             tools exist. With six defined it is routinely 90%+ of
       //             the request by size.
+      //
       // Built once, then both logged and sent. An earlier version
       // claimed in a comment that the logged object matched the call
       // "field for field" — a claim nothing enforced, and exactly how
       // the orchestrator came to log one model while calling another.
+      //
       // --- Prompt caching --------------------------------------------
       //
       // The request renders as tools → system → messages, and a cache
@@ -219,29 +220,10 @@ export const toolLoop: Pattern = {
       // the whole exercise would be wasted.
       const cachePlan = describeCachePlan(tools, system, messages, producing);
 
-      // Written out here rather than calling warnIfBelowCacheMinimum,
-      // which the six single-request patterns share. This one fires
-      // only on the first iteration — the prefix does not change
-      // between them, so warning every time would be noise — and that
-      // condition is the difference worth keeping.
+      // Only on the first iteration: the prefix does not change
+      // between them, so warning every time would be noise.
       if (iteration === 1 && !cachePlan.meetsMinimum) {
-        log.warn(
-          `Cacheable prefix is about ${cachePlan.approximateTokens} tokens, ` +
-            `below the ${cachePlan.minimum}-token minimum`,
-          {
-            plan: cachePlan,
-            note:
-              "Short prefixes are silently not cached — no error, and " +
-              "cache_creation_input_tokens simply stays zero. Enable " +
-              "some tools or pick a longer system prompt to see caching " +
-              "actually work.",
-          },
-          {
-            iteration,
-            actor: "app",
-            because: "the prefix is too short for the model to cache",
-          },
-        );
+        logCachePlanWarning(log, iteration, cachePlan);
       }
 
       const request = {
@@ -268,27 +250,14 @@ export const toolLoop: Pattern = {
         ...withEffort(effort),
       };
 
-      log.api(
-        iteration === 1
-          ? `Calling ${producing} · ${messages.length} message(s) · ` +
-            `${toolCount} tool(s) · ` +
-            `tool_choice: ${toolChoiceLabel}`
-          : `Iteration ${iteration}: calling ${producing} · ` +
-            `${messages.length} message(s) · ${toolCount} tool(s)`,
-        {
-          iteration,
-          request,
-        },
-        {
-          direction: "out",
-          iteration,
-          actor: "app",
-          because:
-            iteration === 1
-              ? "the user sent a message"
-              : "the previous response asked for tools, and their results " +
-                "are now in the conversation",
-        },
+      logRequest(
+        log,
+        iteration,
+        producing,
+        messages,
+        toolCount,
+        toolChoiceLabel,
+        request,
       );
 
       const started = Date.now();
@@ -309,14 +278,14 @@ export const toolLoop: Pattern = {
 
       const response = await stream.finalMessage();
 
-    // The reasoning summary, if one came back. Empty under the default
-    // display setting: the blocks arrive either way, but with no text.
-    const thinkingSummary = response.content
-      .filter((block) => block.type === "thinking")
-      .map((block) => block.thinking)
-      .join("")
-      .trim();
-    if (thinkingSummary) emitThinking(thinkingSummary);
+      // The reasoning summary, if one came back. Empty under the default
+      // display setting: the blocks arrive either way, but with no text.
+      const thinkingSummary = response.content
+        .filter((block) => block.type === "thinking")
+        .map((block) => block.thinking)
+        .join("")
+        .trim();
+      if (thinkingSummary) emitThinking(thinkingSummary);
 
       const elapsed = Date.now() - started;
 
@@ -341,109 +310,14 @@ export const toolLoop: Pattern = {
       const serverTools = serverToolCounts(response.usage);
       cacheTally.add(usage, response.model);
 
-      // The complete response, not only its usage figures.
-      //
-      // `content` is the part worth expanding. It is an array of blocks,
-      // and seeing a text block sitting next to a tool_use block in the
-      // same response is the clearest way to understand why the code
-      // filters by type rather than reading content[0]. On a turn that
-      // calls a tool, this is where the tool_use id comes from — the
-      // same id that the tool_result must quote back.
-      log.api(
-        `${usage.totalInput} in / ${usage.output} out · ` +
-          `${formatCost(usage.cost)} · ${elapsed}ms · ` +
-          `${response.stop_reason}` +
-          // The cache hit rate, where there is one. Worth putting in
-          // the label rather than only the detail: it is the number
-          // that changes most visibly between the first request of a
-          // conversation and every one after it.
-          (usage.cacheRead > 0
-            ? ` · ${Math.round(usage.cacheHitRate * 100)}% cached`
-            : "") +
-          (serverTools.searches > 0
-            ? ` · ${serverTools.searches} web search(es)`
-            : "") +
-          (text ? ` · ${snippet(text)}` : ""),
-        {
-          iteration,
-          elapsed_ms: elapsed,
-          estimated_cost: formatCost(usage.cost),
-          // The response object as the SDK returned it, minus nothing.
-          response: {
-            id: response.id,
-            model: response.model,
-            role: response.role,
-            stop_reason: response.stop_reason,
-            stop_sequence: response.stop_sequence,
-            content: response.content,
-            usage: response.usage,
-          },
-          // The same numbers, named and priced. Kept alongside the raw
-          // usage rather than replacing it, because the raw field names
-          // are the ones in the documentation.
-          tokens: {
-            input: usage.input,
-            output: usage.output,
-            cache_read: usage.cacheRead,
-            cache_write: usage.cacheWrite,
-            total_input: usage.totalInput,
-          },
-          // What caching did on this request, in words.
-          //
-          // The raw cache_read and cache_write numbers above are the
-          // ones in the documentation, but they do not say which
-          // state you are in — and the three states look similar
-          // until you know what to compare. Spelling it out is the
-          // difference between a reader seeing numbers and seeing
-          // what happened.
-          caching: {
-            hit_rate: `${Math.round(usage.cacheHitRate * 100)}%`,
-            read_from_cache: usage.cacheRead,
-            written_to_cache: usage.cacheWrite,
-            fresh: usage.input,
-            // The long form, kept here on purpose rather than calling
-            // describeCacheOutcome. This is where a reader first sees
-            // caching across several requests in one turn, so each
-            // state says what it means for the NEXT iteration — which
-            // the six single-request patterns have no next iteration
-            // to talk about.
-            what_happened:
-              usage.cacheRead > 0
-                ? `${usage.cacheRead} tokens were served from cache at ` +
-                  "about a twentieth of the normal input price. The " +
-                  "prefix matched because the tools, the system prompt " +
-                  "and the settled history were byte-identical to a " +
-                  "previous request."
-                : usage.cacheWrite > 0
-                  ? `${usage.cacheWrite} tokens were WRITTEN to the ` +
-                    "cache, which costs 25% more than fresh input. " +
-                    "Nothing was read because there was nothing to " +
-                    "match yet — the next request with this prefix is " +
-                    "where it pays off."
-                  : "No caching on this request. Either the prefix is " +
-                    "below the minimum length, something in it changed, " +
-                    "or the entry expired after about five minutes idle.",
-          },
-          ...(serverTools.searches > 0 || serverTools.fetches > 0
-            ? {
-                server_tools: {
-                  web_searches: serverTools.searches,
-                  web_fetches: serverTools.fetches,
-                  note:
-                    "Billed per request, separately from tokens. The " +
-                    "content Claude read from the results IS counted in " +
-                    "the input tokens above, so a search costs twice.",
-                },
-              }
-            : {}),
-        },
-        {
-          direction: "in",
-          iteration,
-          actor: "claude",
-          because: `request ${iteration} completed with stop_reason ` +
-            `"${response.stop_reason}"`,
-        },
+      logResponse(
+        log,
+        iteration,
+        usage,
+        elapsed,
+        response,
+        text,
+        serverTools,
       );
 
       // What Anthropic did on its own while producing this response.
@@ -453,15 +327,7 @@ export const toolLoop: Pattern = {
       // Truncation returns HTTP 200 and looks like a normal reply, so
       // nothing else would surface it.
       if (response.stop_reason === "max_tokens") {
-        log.error(
-          "Reply was truncated: it hit the max_tokens ceiling.",
-          { max_tokens: MAX_TOKENS, output_tokens: usage.output },
-          {
-            iteration,
-            actor: "claude",
-            because: "the reply reached max_tokens before finishing",
-          },
-        );
+        logTruncated(log, iteration, usage);
       }
 
       // --- Is Claude finished? ----------------------------------------------
@@ -479,38 +345,7 @@ export const toolLoop: Pattern = {
         (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
       );
 
-      log.tool(
-        `Claude requested ${requests.length} tool call(s): ` +
-          requests.map((r) => r.name).join(", "),
-        {
-          iteration,
-          // The id matters: each result must quote it back so the API
-          // knows which request is being answered.
-          requests: requests.map((r) => ({
-            id: r.id,
-            name: r.name,
-            input: r.input,
-          })),
-        },
-        {
-          // Direction "none", NOT "in". Nothing arrives here.
-          //
-          // The response landed on the row above. This row is our code
-          // filtering response.content for tool_use blocks and reporting
-          // what it found — a local operation on data already in memory.
-          // Marking it inbound implied a second delivery from Anthropic,
-          // which is exactly the misreading the direction column exists
-          // to prevent.
-          //
-          // The actor stays "claude" because the model did decide this,
-          // even though the reading of it happened here. Direction says
-          // where the data moved; actor says whose decision it was.
-          iteration,
-          actor: "claude",
-          because:
-            'the response we just received stopped with stop_reason "tool_use"',
-        },
-      );
+      logToolRequests(log, iteration, requests);
 
       // --- Run them, all at once --------------------------------------------
       //
@@ -542,21 +377,7 @@ export const toolLoop: Pattern = {
       const parallelStarted = Date.now();
 
       if (requests.length > 1) {
-        log.info(
-          `Running ${requests.length} tools in parallel`,
-          {
-            tools: requests.map((r) => r.name),
-            note:
-              "Promise.all, so the total time is the slowest tool rather " +
-              "than the sum of all of them. Compare the elapsed_ms on each " +
-              "tool row with the total below.",
-          },
-          {
-            iteration,
-            actor: "app",
-            because: "the response contained more than one tool_use block",
-          },
-        );
+        logParallelStart(log, iteration, requests);
       }
 
       const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
@@ -566,15 +387,7 @@ export const toolLoop: Pattern = {
       const parallelElapsed = Date.now() - parallelStarted;
 
       if (requests.length > 1) {
-        log.info(
-          `All ${requests.length} tools finished in ${parallelElapsed}ms`,
-          { elapsed_ms: parallelElapsed, tool_count: requests.length },
-          {
-            iteration,
-            actor: "app",
-            because: "every tool in the batch has returned",
-          },
-        );
+        logParallelEnd(log, iteration, requests, parallelElapsed);
       }
 
       // --- Append both turns and go round again ------------------------------
@@ -589,79 +402,19 @@ export const toolLoop: Pattern = {
       messages.push({ role: "assistant", content: response.content });
       messages.push({ role: "user", content: toolResults });
 
-      // What actually goes back on the wire.
-      //
-      // The rows above show each tool running; this shows the message
-      // built from them — the tool_result blocks, each quoting the
-      // tool_use_id of the request it answers, all inside a single user
-      // turn. That structure is the part of tool use people get wrong,
-      // and it is invisible unless it is logged.
       const errorCount = toolResults.filter((r) => r.is_error).length;
 
-      // Direction "none", NOT "out". Nothing is sent here.
-      //
-      // This row logs a message being pushed onto the array in memory.
-      // It leaves the machine on the next iteration's request, along
-      // with every message before it — one HTTP call, not two. Marking
-      // this outbound implied a round trip that does not exist, which
-      // is exactly the confusion this panel is supposed to prevent.
-      log.info(
-        `Built a user message with ${toolResults.length} tool_result block(s)` +
-          (errorCount > 0 ? ` (${errorCount} errored)` : ""),
-        {
-          note:
-            "Not sent yet — this message is appended to the conversation " +
-            "and travels on the next request, with the whole history. " +
-            "All results go in ONE user message, and each tool_result " +
-            "quotes the tool_use_id of the request it answers; that id " +
-            "is how the API pairs them up.",
-          user_message: { role: "user", content: toolResults },
-        },
-        {
-          iteration,
-          actor: "app",
-          because: "every tool_use block must be answered before the next request",
-        },
-      );
+      logToolResultsMessage(log, iteration, toolResults, errorCount);
     }
 
     if (iteration > 1) {
       const cache = cacheTally.summary();
 
       if (cache.fromCache > 0) {
-        log.info(
-          `Caching saved ${formatCost(cache.saved)} this turn · ` +
-            `${Math.round(cache.hitRate * 100)}% of input from cache`,
-          {
-            input_tokens_total: cache.totalInput,
-            from_cache: cache.fromCache,
-            hit_rate: `${Math.round(cache.hitRate * 100)}%`,
-            input_cost_billed: formatCost(cache.inputCost),
-            input_cost_without_caching: formatCost(cache.withoutCaching),
-            saved: formatCost(cache.saved),
-            saved_percent: `${Math.round(cache.savedPercent * 100)}%`,
-            note:
-              "Across every request this turn made. The per-request hit " +
-              "rates above vary because each is a different mix of cached " +
-              "prefix and fresh question; this is the figure that says " +
-              "whether caching is paying for itself.",
-          },
-          {
-            actor: "app",
-            because: "the turn is complete and the cache figures can be totalled",
-          },
-        );
+        logCacheTotals(log, cache);
       }
 
-      log.info(
-        `Finished after ${Math.min(iteration, MAX_TOOL_ITERATIONS)} iteration(s) · ` +
-          `${formatCost(totalCost)} total`,
-        { iterations: iteration, stop_reason: stopReason, total_cost: totalCost },
-        {
-          actor: "app",
-          because: `the last response stopped with "${stopReason}", which needs nothing further`,
-        },
-      );
+      logTurnSummary(log, iteration, stopReason, totalCost);
     }
 
     // iteration counts the pass that detected the cap as well, so the
@@ -674,3 +427,372 @@ export const toolLoop: Pattern = {
     };
   },
 };
+
+// ---------------------------------------------------------------------------
+// Activity-log rows: what the panel shows for each step above
+// ---------------------------------------------------------------------------
+//
+// Everything below builds a log row. None of it changes what is sent to
+// Anthropic or what comes back, which is why it is down here rather
+// than threaded through the loop: the loop above should read as the
+// five steps it is, and this is the commentary on them.
+//
+// Each function takes exactly the values its row needs and calls one
+// log method. They are not exported — they describe this pattern's
+// rows and nothing else should be building them.
+
+function logIterationCap(log: Logger, iteration: number): void {
+  log.error(
+    `Stopped after ${MAX_TOOL_ITERATIONS} iterations — the loop was not ` +
+      "finishing on its own",
+    {
+      note:
+        "Claude kept asking for tools. Common causes: a tool whose " +
+        "result does not actually answer the question, a tool that " +
+        "keeps failing, or an ambiguous request. The cap is what " +
+        "stops this costing money indefinitely.",
+    },
+    {
+      iteration,
+      actor: "app",
+      because: `the loop reached its ${MAX_TOOL_ITERATIONS}-iteration limit`,
+    },
+  );
+}
+
+function logCachePlanWarning(log: Logger, iteration: number, cachePlan: CachePlan): void {
+  log.warn(
+    `Cacheable prefix is about ${cachePlan.approximateTokens} tokens, ` +
+      `below the ${cachePlan.minimum}-token minimum`,
+    {
+      plan: cachePlan,
+      note:
+        "Short prefixes are silently not cached — no error, and " +
+        "cache_creation_input_tokens simply stays zero. Enable " +
+        "some tools or pick a longer system prompt to see caching " +
+        "actually work.",
+    },
+    {
+      iteration,
+      actor: "app",
+      because: "the prefix is too short for the model to cache",
+    },
+  );
+}
+
+
+// The complete request body, on every iteration.
+//
+// An earlier version logged the full body on the first request and
+// only a summary on later ones, which hid the most interesting
+// request in the exchange: the one carrying the tool results back,
+// where you can see the assistant turn with its tool_use block and
+// the user turn with the matching tool_result. Logging a summary
+// there answered a question nobody was asking.
+function logRequest(
+  log: Logger,
+  iteration: number,
+  producing: string,
+  messages: Anthropic.MessageParam[],
+  toolCount: number,
+  toolChoiceLabel: string,
+  request: Anthropic.MessageCreateParams,
+): void {
+  log.api(
+    iteration === 1
+      ? `Calling ${producing} · ${messages.length} message(s) · ` +
+        `${toolCount} tool(s) · ` +
+        `tool_choice: ${toolChoiceLabel}`
+      : `Iteration ${iteration}: calling ${producing} · ` +
+        `${messages.length} message(s) · ${toolCount} tool(s)`,
+    {
+      iteration,
+      request,
+    },
+    {
+      direction: "out",
+      iteration,
+      actor: "app",
+      because:
+        iteration === 1
+          ? "the user sent a message"
+          : "the previous response asked for tools, and their results " +
+            "are now in the conversation",
+    },
+  );
+}
+
+// The complete response, not only its usage figures.
+//
+// `content` is the part worth expanding. It is an array of blocks,
+// and seeing a text block sitting next to a tool_use block in the
+// same response is the clearest way to understand why the code
+// filters by type rather than reading content[0]. On a turn that
+// calls a tool, this is where the tool_use id comes from — the
+// same id that the tool_result must quote back.
+function logResponse(
+  log: Logger,
+  iteration: number,
+  usage: UsageSummary,
+  elapsed: number,
+  response: Anthropic.Message,
+  text: string,
+  serverTools: { searches: number; fetches: number },
+): void {
+  log.api(
+    `${usage.totalInput} in / ${usage.output} out · ` +
+      `${formatCost(usage.cost)} · ${elapsed}ms · ` +
+      `${response.stop_reason}` +
+      // The cache hit rate, where there is one. Worth putting in
+      // the label rather than only the detail: it is the number
+      // that changes most visibly between the first request of a
+      // conversation and every one after it.
+      (usage.cacheRead > 0
+        ? ` · ${Math.round(usage.cacheHitRate * 100)}% cached`
+        : "") +
+      (serverTools.searches > 0
+        ? ` · ${serverTools.searches} web search(es)`
+        : "") +
+      (text ? ` · ${snippet(text)}` : ""),
+    {
+      iteration,
+      elapsed_ms: elapsed,
+      estimated_cost: formatCost(usage.cost),
+      // The response object as the SDK returned it, minus nothing.
+      response: {
+        id: response.id,
+        model: response.model,
+        role: response.role,
+        stop_reason: response.stop_reason,
+        stop_sequence: response.stop_sequence,
+        content: response.content,
+        usage: response.usage,
+      },
+      // The same numbers, named and priced. Kept alongside the raw
+      // usage rather than replacing it, because the raw field names
+      // are the ones in the documentation.
+      tokens: {
+        input: usage.input,
+        output: usage.output,
+        cache_read: usage.cacheRead,
+        cache_write: usage.cacheWrite,
+        total_input: usage.totalInput,
+      },
+      // What caching did on this request, in words.
+      //
+      // The raw cache_read and cache_write numbers above are the
+      // ones in the documentation, but they do not say which
+      // state you are in — and the three states look similar
+      // until you know what to compare. Spelling it out is the
+      // difference between a reader seeing numbers and seeing
+      // what happened.
+      caching: {
+        hit_rate: `${Math.round(usage.cacheHitRate * 100)}%`,
+        read_from_cache: usage.cacheRead,
+        written_to_cache: usage.cacheWrite,
+        fresh: usage.input,
+        // The long form, kept here on purpose rather than calling
+        // describeCacheOutcome. This is where a reader first sees
+        // caching across several requests in one turn, so each
+        // state says what it means for the NEXT iteration — which
+        // the six single-request patterns have no next iteration
+        // to talk about.
+        what_happened:
+          usage.cacheRead > 0
+            ? `${usage.cacheRead} tokens were served from cache at ` +
+              "about a twentieth of the normal input price. The " +
+              "prefix matched because the tools, the system prompt " +
+              "and the settled history were byte-identical to a " +
+              "previous request."
+            : usage.cacheWrite > 0
+              ? `${usage.cacheWrite} tokens were WRITTEN to the ` +
+                "cache, which costs 25% more than fresh input. " +
+                "Nothing was read because there was nothing to " +
+                "match yet — the next request with this prefix is " +
+                "where it pays off."
+              : "No caching on this request. Either the prefix is " +
+                "below the minimum length, something in it changed, " +
+                "or the entry expired after about five minutes idle.",
+      },
+      ...(serverTools.searches > 0 || serverTools.fetches > 0
+        ? {
+            server_tools: {
+              web_searches: serverTools.searches,
+              web_fetches: serverTools.fetches,
+              note:
+                "Billed per request, separately from tokens. The " +
+                "content Claude read from the results IS counted in " +
+                "the input tokens above, so a search costs twice.",
+            },
+          }
+        : {}),
+    },
+    {
+      direction: "in",
+      iteration,
+      actor: "claude",
+      because: `request ${iteration} completed with stop_reason ` +
+        `"${response.stop_reason}"`,
+    },
+  );
+}
+
+function logTruncated(log: Logger, iteration: number, usage: UsageSummary): void {
+  log.error(
+    "Reply was truncated: it hit the max_tokens ceiling.",
+    { max_tokens: MAX_TOKENS, output_tokens: usage.output },
+    {
+      iteration,
+      actor: "claude",
+      because: "the reply reached max_tokens before finishing",
+    },
+  );
+}
+
+function logToolRequests(log: Logger, iteration: number, requests: Anthropic.ToolUseBlock[]): void {
+  log.tool(
+    `Claude requested ${requests.length} tool call(s): ` +
+      requests.map((r) => r.name).join(", "),
+    {
+      iteration,
+      // The id matters: each result must quote it back so the API
+      // knows which request is being answered.
+      requests: requests.map((r) => ({
+        id: r.id,
+        name: r.name,
+        input: r.input,
+      })),
+    },
+    {
+      // Direction "none", NOT "in". Nothing arrives here.
+      //
+      // The response landed on the row above. This row is our code
+      // filtering response.content for tool_use blocks and reporting
+      // what it found — a local operation on data already in memory.
+      // Marking it inbound implied a second delivery from Anthropic,
+      // which is exactly the misreading the direction column exists
+      // to prevent.
+      //
+      // The actor stays "claude" because the model did decide this,
+      // even though the reading of it happened here. Direction says
+      // where the data moved; actor says whose decision it was.
+      iteration,
+      actor: "claude",
+      because:
+        'the response we just received stopped with stop_reason "tool_use"',
+    },
+  );
+}
+
+function logParallelStart(log: Logger, iteration: number, requests: Anthropic.ToolUseBlock[]): void {
+  log.info(
+    `Running ${requests.length} tools in parallel`,
+    {
+      tools: requests.map((r) => r.name),
+      note:
+        "Promise.all, so the total time is the slowest tool rather " +
+        "than the sum of all of them. Compare the elapsed_ms on each " +
+        "tool row with the total below.",
+    },
+    {
+      iteration,
+      actor: "app",
+      because: "the response contained more than one tool_use block",
+    },
+  );
+}
+
+function logParallelEnd(
+  log: Logger,
+  iteration: number,
+  requests: Anthropic.ToolUseBlock[],
+  parallelElapsed: number,
+): void {
+  log.info(
+    `All ${requests.length} tools finished in ${parallelElapsed}ms`,
+    { elapsed_ms: parallelElapsed, tool_count: requests.length },
+    {
+      iteration,
+      actor: "app",
+      because: "every tool in the batch has returned",
+    },
+  );
+}
+
+// What actually goes back on the wire.
+//
+// The rows above show each tool running; this shows the message
+// built from them — the tool_result blocks, each quoting the
+// tool_use_id of the request it answers, all inside a single user
+// turn. That structure is the part of tool use people get wrong,
+// and it is invisible unless it is logged.
+function logToolResultsMessage(
+  log: Logger,
+  iteration: number,
+  toolResults: Anthropic.ToolResultBlockParam[],
+  errorCount: number,
+): void {
+  log.info(
+    `Built a user message with ${toolResults.length} tool_result block(s)` +
+      (errorCount > 0 ? ` (${errorCount} errored)` : ""),
+    {
+      note:
+        "Not sent yet — this message is appended to the conversation " +
+        "and travels on the next request, with the whole history. " +
+        "All results go in ONE user message, and each tool_result " +
+        "quotes the tool_use_id of the request it answers; that id " +
+        "is how the API pairs them up.",
+      user_message: { role: "user", content: toolResults },
+    },
+    {
+      iteration,
+      actor: "app",
+      because: "every tool_use block must be answered before the next request",
+    },
+  );
+}
+
+/** The shape CacheTally.summary() returns; it has no exported name. */
+type CacheTotals = ReturnType<CacheTally["summary"]>;
+
+function logCacheTotals(log: Logger, cache: CacheTotals): void {
+  log.info(
+    `Caching saved ${formatCost(cache.saved)} this turn · ` +
+      `${Math.round(cache.hitRate * 100)}% of input from cache`,
+    {
+      input_tokens_total: cache.totalInput,
+      from_cache: cache.fromCache,
+      hit_rate: `${Math.round(cache.hitRate * 100)}%`,
+      input_cost_billed: formatCost(cache.inputCost),
+      input_cost_without_caching: formatCost(cache.withoutCaching),
+      saved: formatCost(cache.saved),
+      saved_percent: `${Math.round(cache.savedPercent * 100)}%`,
+      note:
+        "Across every request this turn made. The per-request hit " +
+        "rates above vary because each is a different mix of cached " +
+        "prefix and fresh question; this is the figure that says " +
+        "whether caching is paying for itself.",
+    },
+    {
+      actor: "app",
+      because: "the turn is complete and the cache figures can be totalled",
+    },
+  );
+}
+
+function logTurnSummary(
+  log: Logger,
+  iteration: number,
+  stopReason: string | null,
+  totalCost: number,
+): void {
+  log.info(
+    `Finished after ${Math.min(iteration, MAX_TOOL_ITERATIONS)} iteration(s) · ` +
+      `${formatCost(totalCost)} total`,
+    { iterations: iteration, stop_reason: stopReason, total_cost: totalCost },
+    {
+      actor: "app",
+      because: `the last response stopped with "${stopReason}", which needs nothing further`,
+    },
+  );
+}
