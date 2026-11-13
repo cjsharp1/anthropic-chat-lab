@@ -3148,6 +3148,27 @@ h6.md-heading {
   min-width: 0;
 }
 
+/* The hidden attribute has to beat the display rule above.
+
+   The THIRD time this trap has been hit in this stylesheet — see the
+   same fix at #log-list li.log-row[hidden] and #api-key-banner. A
+   browser hides [hidden] elements with `display: none` from its own
+   stylesheet, and ANY author rule that sets display overrides it.
+   So `commandField.hidden = true` set the attribute and changed
+   nothing on screen: the stdio Command box sat there under the URL
+   box, both visible at once, looking like the dialog could not
+   decide which transport it was on.
+
+   !important because a bare attribute selector loses to the class
+   rule above it.
+
+   The general rule, worth remembering before adding the next
+   `display:` to a toggled element: setting display on something you
+   also toggle with [hidden] breaks the toggle, silently. */
+.mcp-field[hidden] {
+  display: none !important;
+}
+
 /* The URL field takes the slack, so a long endpoint stays readable
    while the transport selector keeps its natural width. */
 #mcp-url-field, #mcp-command-field { flex: 1 1 18rem; }
