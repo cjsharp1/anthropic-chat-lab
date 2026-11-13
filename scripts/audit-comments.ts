@@ -22,6 +22,12 @@
  *   3. It is long enough to be an explanation rather than a label.
  *      "utils.ts — utilities" passes a naive check and tells nobody
  *      anything.
+ *
+ * Four directories are audited: server/, public/, scripts/ and
+ * shared/. A folder of source files that is not in that list is a
+ * folder this script silently ignores, which is what happened to
+ * shared/ — CLAUDE.md called the header rule enforced while the one
+ * file both halves depend on was never checked.
  */
 
 import { readFileSync } from "node:fs";
@@ -109,7 +115,7 @@ function audit(path: string): Finding {
     .replace(/^\/\*+/, "")
     .replace(/\*+\/$/, "")
     .split("\n")
-    .map((line) => line.replace(/^\s*\*ex?/, "").replace(/^\s*\*/, "").trim())
+    .map((line) => line.replace(/^\s*\*/, "").trim())
     .join(" ")
     .trim();
 
@@ -145,6 +151,7 @@ async function main(): Promise<void> {
     ...(await findSources(join(ROOT, "server"))),
     ...(await findSources(join(ROOT, "public"))),
     ...(await findSources(join(ROOT, "scripts"))),
+    ...(await findSources(join(ROOT, "shared"))),
   ].sort();
 
   const findings = files.map(audit);
