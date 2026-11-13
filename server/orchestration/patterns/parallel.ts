@@ -51,6 +51,7 @@
  * padded or irrelevant. That failure is worth seeing.
  */
 
+import type Anthropic from "@anthropic-ai/sdk";
 import { client, MAX_TOKENS } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
@@ -60,10 +61,16 @@ import {
   withCachedHistory,
   withCachedSystem,
 } from "../../caching.js";
-import { formatCost, snippet, summariseUsage } from "../../usage.js";
+import {
+  formatCost,
+  snippet,
+  summariseUsage,
+  type UsageSummary,
+} from "../../usage.js";
 import { thinkingConfig } from "../../thinking.js";
 import { withEffort } from "../../effort.js";
 import type { Pattern, PatternContext, PatternResult } from "../types.js";
+import type { Logger } from "../../logger.js";
 
 /** Each branch is capped: three long answers would overwhelm the merge. */
 const BRANCH_MAX_TOKENS = 1200;
@@ -182,21 +189,7 @@ export const parallel: Pattern = {
 
     let totalCost = 0;
 
-    log.info(
-      `Fanning out to ${ASPECTS.length} branches`,
-      {
-        aspects: ASPECTS.map((a) => ({ id: a.id, name: a.name })),
-        note:
-          "All three start at once. Compare the sum of their elapsed " +
-          "times with the wall-clock total below — the difference is " +
-          "what concurrency bought.",
-      },
-      {
-        iteration: 1,
-        actor: "app",
-        because: "this pattern splits every question into three aspects",
-      },
-    );
+    logFanOutStart(log);
 
     const fanOutStarted = Date.now();
 
@@ -226,16 +219,7 @@ export const parallel: Pattern = {
           ...withEffort(effort),
         };
 
-        log.api(
-          `Branch: ${aspect.name}`,
-          { request: branchRequest },
-          {
-            direction: "out",
-            iteration: 1,
-            actor: "app",
-            because: `the ${aspect.id} branch of the fan-out`,
-          },
-        );
+        logBranchRequest(log, branchRequest, aspect);
 
         try {
           // .create(), not .stream(). Three streams arriving at once
@@ -253,53 +237,14 @@ export const parallel: Pattern = {
 
           const usage = summariseUsage(response.usage, response.model);
 
-          log.api(
-            `${aspect.name} · ${usage.totalInput} in / ${usage.output} out · ` +
-              `${formatCost(usage.cost)} · ${elapsedMs}ms`,
-            {
-              iteration: 1,
-              aspect: aspect.id,
-              elapsed_ms: elapsedMs,
-              estimated_cost: formatCost(usage.cost),
-              // The branch's own answer, which the user never sees in
-              // this form. When a merged answer comes out lopsided,
-              // this is where to look.
-              branch_text: text,
-              response: {
-                model: response.model,
-                stop_reason: response.stop_reason,
-                usage: response.usage,
-              },
-            },
-            {
-              direction: "in",
-              iteration: 1,
-              actor: "claude",
-              because: `the ${aspect.id} branch returned`,
-            },
-          );
+          logBranchResponse(log, response, elapsedMs, text, usage, aspect);
 
           return { aspect, text, cost: usage.cost, elapsedMs, failed: false };
         } catch (error: unknown) {
           const message =
             error instanceof Error ? error.message : String(error);
 
-          log.error(
-            `Branch ${aspect.name} failed: ${message.slice(0, 50)}`,
-            {
-              aspect: aspect.id,
-              error: message,
-              note:
-                "The other branches continue. A fan-out that abandoned " +
-                "everything because one branch failed would be more " +
-                "fragile than a single call, which defeats the point.",
-            },
-            {
-              iteration: 1,
-              actor: "app",
-              because: "this branch's request threw",
-            },
-          );
+          logBranchFailed(log, message, aspect);
 
           return {
             aspect,
@@ -319,48 +264,13 @@ export const parallel: Pattern = {
 
     const succeeded = branches.filter((b) => !b.failed && b.text);
 
-    log.info(
-      `All branches finished in ${fanOutElapsed}ms ` +
-        `(${sequentialWouldBe}ms if run in sequence)`,
-      {
-        wall_clock_ms: fanOutElapsed,
-        sum_of_branches_ms: sequentialWouldBe,
-        saved_ms: sequentialWouldBe - fanOutElapsed,
-        per_branch: branches.map((b) => ({
-          aspect: b.aspect.id,
-          ms: b.elapsedMs,
-          failed: b.failed,
-        })),
-        note:
-          "The wall clock is the slowest branch, not the sum. That " +
-          "difference is the entire argument for this pattern — the " +
-          "cost is four requests either way.",
-      },
-      {
-        iteration: 1,
-        actor: "app",
-        because: "every branch has returned or failed",
-      },
-    );
+    logFanOutEnd(log, branches, fanOutElapsed, sequentialWouldBe);
 
     // Every branch failing is worth stopping for: the synthesis call
     // would have nothing to merge and would answer from scratch, which
     // is a single call wearing a disguise and billed as four.
     if (succeeded.length === 0) {
-      log.error(
-        "Every branch failed — nothing to merge",
-        {
-          note:
-            "Returning without a synthesis call. Merging nothing would " +
-            "produce an answer that looks normal but cost four requests " +
-            "to not use any of them.",
-        },
-        {
-          iteration: 1,
-          actor: "app",
-          because: "no branch produced any text",
-        },
-      );
+      logAllBranchesFailed(log);
 
       return {
         text:
@@ -418,22 +328,7 @@ export const parallel: Pattern = {
       ...withEffort(effort),
     };
 
-    log.api(
-      `Merging ${succeeded.length} branch(es)`,
-      {
-        request: mergeRequest,
-        note:
-          "This call's input contains all three branch answers, which is " +
-          "why it is the largest request of the four. The fan-out saves " +
-          "time; it does not save tokens.",
-      },
-      {
-        direction: "out",
-        iteration: 2,
-        actor: "app",
-        because: "the branches are complete and their answers need merging",
-      },
-    );
+    logMergeRequest(log, succeeded, mergeRequest);
 
     const mergeStarted = Date.now();
 
@@ -463,63 +358,263 @@ export const parallel: Pattern = {
     const mergeUsage = summariseUsage(mergeResponse.usage, mergeResponse.model);
     totalCost += mergeUsage.cost;
 
-    log.api(
-      `${mergeUsage.totalInput} in / ${mergeUsage.output} out · ` +
-        `${formatCost(mergeUsage.cost)} · ${mergeElapsed}ms · ` +
-        `${mergeResponse.stop_reason} · ${snippet(text)}`,
-      {
-        iteration: 2,
-        elapsed_ms: mergeElapsed,
-        estimated_cost: formatCost(mergeUsage.cost),
-        // What caching did, in words. The raw cache_read and
-        // cache_write numbers are the ones in the documentation, but
-        // they do not say which of three states this request was in,
-        // and the three look similar until you know what to compare.
-        caching: {
-          hit_rate: `${Math.round(mergeUsage.cacheHitRate * 100)}%`,
-          read_from_cache: mergeUsage.cacheRead,
-          written_to_cache: mergeUsage.cacheWrite,
-          fresh: mergeUsage.input,
-          what_happened: describeCacheOutcome(mergeUsage),
-        },
-        response: {
-          model: mergeResponse.model,
-          stop_reason: mergeResponse.stop_reason,
-          usage: mergeResponse.usage,
-        },
-      },
-      {
-        direction: "in",
-        iteration: 2,
-        actor: "claude",
-        because: "the synthesis call returned the merged answer",
-      },
-    );
+    logMergeResponse(log, text, mergeResponse, mergeElapsed, mergeUsage);
 
     const requests = ASPECTS.length + 1;
 
-    log.info(
-      `Parallel complete · ${requests} requests · ${formatCost(totalCost)} · ` +
-        `saved ${sequentialWouldBe - fanOutElapsed}ms`,
-      {
-        requests,
-        branch_cost: formatCost(totalCost - mergeUsage.cost),
-        merge_cost: formatCost(mergeUsage.cost),
-        total_cost: totalCost,
-        wall_clock_saved_ms: sequentialWouldBe - fanOutElapsed,
-        note:
-          "Four requests for one question. Compare with Single call: " +
-          "this pattern buys latency and breadth, and pays for it in " +
-          "tokens. Whether that is a good trade depends on whether " +
-          "anyone is waiting.",
-      },
-      {
-        iteration: 2,
-        actor: "app",
-        because: "the merge has completed",
-      },
+    logParallelSummary(
+      log,
+      totalCost,
+      fanOutElapsed,
+      sequentialWouldBe,
+      mergeUsage,
+      requests,
     );
 
     return { text, cost: totalCost, requests };
   },
 };
+
+// ---------------------------------------------------------------------------
+// Activity-log rows: what the panel shows for each step above
+// ---------------------------------------------------------------------------
+//
+// Everything below builds a log row. None of it changes what is sent to
+// Anthropic or what comes back, which is why it sits here rather than
+// inside run(): the steps above should read as the pattern, and this is
+// the commentary on them.
+//
+// Same arrangement as the other patterns, deliberately. A reader who
+// has seen one should recognise the rest.
+
+function logFanOutStart(log: Logger): void {
+  log.info(
+    `Fanning out to ${ASPECTS.length} branches`,
+    {
+      aspects: ASPECTS.map((a) => ({ id: a.id, name: a.name })),
+      note:
+        "All three start at once. Compare the sum of their elapsed " +
+        "times with the wall-clock total below — the difference is " +
+        "what concurrency bought.",
+    },
+    {
+      iteration: 1,
+      actor: "app",
+      because: "this pattern splits every question into three aspects",
+    },
+  );
+}
+
+function logBranchRequest(
+  log: Logger,
+  branchRequest: Anthropic.MessageCreateParams,
+  aspect: Aspect,
+): void {
+  log.api(
+    `Branch: ${aspect.name}`,
+    { request: branchRequest },
+    {
+      direction: "out",
+      iteration: 1,
+      actor: "app",
+      because: `the ${aspect.id} branch of the fan-out`,
+    },
+  );
+}
+
+function logBranchResponse(
+  log: Logger,
+  response: Anthropic.Message,
+  elapsedMs: number,
+  text: string,
+  usage: UsageSummary,
+  aspect: Aspect,
+): void {
+  log.api(
+    `${aspect.name} · ${usage.totalInput} in / ${usage.output} out · ` +
+      `${formatCost(usage.cost)} · ${elapsedMs}ms`,
+    {
+      iteration: 1,
+      aspect: aspect.id,
+      elapsed_ms: elapsedMs,
+      estimated_cost: formatCost(usage.cost),
+      // The branch's own answer, which the user never sees in
+      // this form. When a merged answer comes out lopsided,
+      // this is where to look.
+      branch_text: text,
+      response: {
+        model: response.model,
+        stop_reason: response.stop_reason,
+        usage: response.usage,
+      },
+    },
+    {
+      direction: "in",
+      iteration: 1,
+      actor: "claude",
+      because: `the ${aspect.id} branch returned`,
+    },
+  );
+}
+
+function logBranchFailed(log: Logger, message: string, aspect: Aspect): void {
+  log.error(
+    `Branch ${aspect.name} failed: ${message.slice(0, 50)}`,
+    {
+      aspect: aspect.id,
+      error: message,
+      note:
+        "The other branches continue. A fan-out that abandoned " +
+        "everything because one branch failed would be more " +
+        "fragile than a single call, which defeats the point.",
+    },
+    {
+      iteration: 1,
+      actor: "app",
+      because: "this branch's request threw",
+    },
+  );
+}
+
+function logFanOutEnd(
+  log: Logger,
+  branches: BranchResult[],
+  fanOutElapsed: number,
+  sequentialWouldBe: number,
+): void {
+  log.info(
+    `All branches finished in ${fanOutElapsed}ms ` +
+      `(${sequentialWouldBe}ms if run in sequence)`,
+    {
+      wall_clock_ms: fanOutElapsed,
+      sum_of_branches_ms: sequentialWouldBe,
+      saved_ms: sequentialWouldBe - fanOutElapsed,
+      per_branch: branches.map((b) => ({
+        aspect: b.aspect.id,
+        ms: b.elapsedMs,
+        failed: b.failed,
+      })),
+      note:
+        "The wall clock is the slowest branch, not the sum. That " +
+        "difference is the entire argument for this pattern — the " +
+        "cost is four requests either way.",
+    },
+    {
+      iteration: 1,
+      actor: "app",
+      because: "every branch has returned or failed",
+    },
+  );
+}
+
+function logAllBranchesFailed(log: Logger): void {
+  log.error(
+    "Every branch failed — nothing to merge",
+    {
+      note:
+        "Returning without a synthesis call. Merging nothing would " +
+        "produce an answer that looks normal but cost four requests " +
+        "to not use any of them.",
+    },
+    {
+      iteration: 1,
+      actor: "app",
+      because: "no branch produced any text",
+    },
+  );
+}
+
+function logMergeRequest(
+  log: Logger,
+  succeeded: BranchResult[],
+  mergeRequest: Anthropic.MessageCreateParams,
+): void {
+  log.api(
+    `Merging ${succeeded.length} branch(es)`,
+    {
+      request: mergeRequest,
+      note:
+        "This call's input contains all three branch answers, which is " +
+        "why it is the largest request of the four. The fan-out saves " +
+        "time; it does not save tokens.",
+    },
+    {
+      direction: "out",
+      iteration: 2,
+      actor: "app",
+      because: "the branches are complete and their answers need merging",
+    },
+  );
+}
+
+function logMergeResponse(
+  log: Logger,
+  text: string,
+  mergeResponse: Anthropic.Message,
+  mergeElapsed: number,
+  mergeUsage: UsageSummary,
+): void {
+  log.api(
+    `${mergeUsage.totalInput} in / ${mergeUsage.output} out · ` +
+      `${formatCost(mergeUsage.cost)} · ${mergeElapsed}ms · ` +
+      `${mergeResponse.stop_reason} · ${snippet(text)}`,
+    {
+      iteration: 2,
+      elapsed_ms: mergeElapsed,
+      estimated_cost: formatCost(mergeUsage.cost),
+      // What caching did, in words. The raw cache_read and
+      // cache_write numbers are the ones in the documentation, but
+      // they do not say which of three states this request was in,
+      // and the three look similar until you know what to compare.
+      caching: {
+        hit_rate: `${Math.round(mergeUsage.cacheHitRate * 100)}%`,
+        read_from_cache: mergeUsage.cacheRead,
+        written_to_cache: mergeUsage.cacheWrite,
+        fresh: mergeUsage.input,
+        what_happened: describeCacheOutcome(mergeUsage),
+      },
+      response: {
+        model: mergeResponse.model,
+        stop_reason: mergeResponse.stop_reason,
+        usage: mergeResponse.usage,
+      },
+    },
+    {
+      direction: "in",
+      iteration: 2,
+      actor: "claude",
+      because: "the synthesis call returned the merged answer",
+    },
+  );
+}
+
+function logParallelSummary(
+  log: Logger,
+  totalCost: number,
+  fanOutElapsed: number,
+  sequentialWouldBe: number,
+  mergeUsage: UsageSummary,
+  requests: number,
+): void {
+  log.info(
+    `Parallel complete · ${requests} requests · ${formatCost(totalCost)} · ` +
+      `saved ${sequentialWouldBe - fanOutElapsed}ms`,
+    {
+      requests,
+      branch_cost: formatCost(totalCost - mergeUsage.cost),
+      merge_cost: formatCost(mergeUsage.cost),
+      total_cost: totalCost,
+      wall_clock_saved_ms: sequentialWouldBe - fanOutElapsed,
+      note:
+        "Four requests for one question. Compare with Single call: " +
+        "this pattern buys latency and breadth, and pays for it in " +
+        "tokens. Whether that is a good trade depends on whether " +
+        "anyone is waiting.",
+    },
+    {
+      iteration: 2,
+      actor: "app",
+      because: "the merge has completed",
+    },
+  );
+}
