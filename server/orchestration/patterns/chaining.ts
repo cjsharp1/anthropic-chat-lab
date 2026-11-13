@@ -46,6 +46,7 @@
  * about how to answer, which is exactly what a plan is.
  */
 
+import type Anthropic from "@anthropic-ai/sdk";
 import { client, MAX_TOKENS } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
@@ -56,10 +57,16 @@ import {
   withCachedSystem,
   withCachedTools,
 } from "../../caching.js";
-import { formatCost, snippet, summariseUsage } from "../../usage.js";
+import {
+  formatCost,
+  snippet,
+  summariseUsage,
+  type UsageSummary,
+} from "../../usage.js";
 import { thinkingConfig } from "../../thinking.js";
 import { withEffort } from "../../effort.js";
 import type { Pattern, PatternContext, PatternResult } from "../types.js";
+import type { Logger } from "../../logger.js";
 
 /** Caps the planning call. An outline that long is not an outline. */
 const PLAN_MAX_TOKENS = 1000;
@@ -174,22 +181,7 @@ export const chaining: Pattern = {
       ...withEffort(effort),
     };
 
-    log.api(
-      `Planning call · ${messages.length} message(s)`,
-      {
-        request: planRequest,
-        note:
-          "Tools are deliberately not offered on this call. The planner " +
-          "decides structure; running a tool is the writer's job, and a " +
-          "tool result fetched here would be thrown away with the outline.",
-      },
-      {
-        direction: "out",
-        iteration: 1,
-        actor: "app",
-        because: "this pattern plans before it writes",
-      },
-    );
+    logPlanRequest(log, planRequest, messages);
 
     const planStarted = Date.now();
 
@@ -209,43 +201,9 @@ export const chaining: Pattern = {
     const planUsage = summariseUsage(planResponse.usage, planResponse.model);
     totalCost += planUsage.cost;
 
-    log.api(
-      `${planUsage.totalInput} in / ${planUsage.output} out · ` +
-        `${formatCost(planUsage.cost)} · ${planElapsed}ms`,
-      {
-        iteration: 1,
-        elapsed_ms: planElapsed,
-        estimated_cost: formatCost(planUsage.cost),
-        // The plan itself, which the user never sees. Worth logging in
-        // full: when a chained answer comes out badly structured, the
-        // outline is where to look, and without this it is invisible.
-        plan,
-        response: {
-          id: planResponse.id,
-          model: planResponse.model,
-          stop_reason: planResponse.stop_reason,
-          usage: planResponse.usage,
-        },
-      },
-      {
-        direction: "in",
-        iteration: 1,
-        actor: "claude",
-        because: "the planning call returned an outline",
-      },
-    );
+    logPlanResponse(log, planResponse, planElapsed, plan, planUsage);
 
-    log.info(
-      `Plan: ${plan.split("\n").filter((line) => line.trim()).length} line(s)`,
-      { plan },
-      {
-        iteration: 1,
-        actor: "app",
-        because:
-          "the outline goes into the next call's system prompt, not into " +
-          "the conversation — the user never said it and should not see it",
-      },
-    );
+    logPlanOutline(log, plan);
 
     // The planner is told to say so when a question needs no plan, and
     // it does. Flag it rather than quietly proceeding: on a one-line
@@ -258,22 +216,7 @@ export const chaining: Pattern = {
     // nothing — the point of selecting it is to see what it does,
     // including when that is the wrong choice.
     if (/simple enough to answer in a sentence/i.test(plan)) {
-      // warn, not error: the chain completes and returns a good answer — it simply cost more than it needed to.
-      log.warn(
-        "The planner says this question did not need a plan",
-        {
-          plan,
-          note:
-            "Chaining costs two requests whatever the question. On " +
-            "something this short the planning call is pure overhead — " +
-            "switch to Single call and compare the cost.",
-        },
-        {
-          iteration: 1,
-          actor: "claude",
-          because: "the outline reports that the question is trivial",
-        },
-      );
+      logPlanNotNeeded(log, plan);
     }
 
     // --- Call two: write -----------------------------------------------------
@@ -328,38 +271,7 @@ export const chaining: Pattern = {
       ...withEffort(effort),
     };
 
-    log.api(
-      `Writing call · ${messages.length} message(s) · ` +
-        `system grew to ${writerSystem.length} chars`,
-      {
-        // Worth comparing against the tool loop, where request 2 carries
-        // THREE messages. Here it carries one, the same as request 1.
-        //
-        // The difference is where the new information went. A tool
-        // result is part of the dialogue — the API requires the
-        // tool_use block and its tool_result to appear as paired turns
-        // in `messages`. A plan is not something anyone said, so it
-        // goes into `system` instead, and the conversation is unchanged.
-        //
-        // Same number of requests, two completely different shapes.
-        what_changed: {
-          messages: `${messages.length} — unchanged from the planning call`,
-          system_before: `${(system ?? "").length} chars`,
-          system_after: `${writerSystem.length} chars`,
-          note:
-            "The plan was folded into the system prompt, not appended to " +
-            "the conversation. Contrast the Tool loop pattern, where " +
-            "request 2 carries two extra messages.",
-        },
-        request: writeRequest,
-      },
-      {
-        direction: "out",
-        iteration: 2,
-        actor: "app",
-        because: "the plan is ready, so the answer can now be written",
-      },
-    );
+    logWriteRequest(log, writerSystem, writeRequest, messages, system);
 
     const writeStarted = Date.now();
 
@@ -390,72 +302,238 @@ export const chaining: Pattern = {
     const writeUsage = summariseUsage(writeResponse.usage, writeResponse.model);
     totalCost += writeUsage.cost;
 
-    log.api(
-      `${writeUsage.totalInput} in / ${writeUsage.output} out · ` +
-        `${formatCost(writeUsage.cost)} · ${writeElapsed}ms · ` +
-        `${writeResponse.stop_reason} · ${snippet(text)}`,
-      {
-        iteration: 2,
-        elapsed_ms: writeElapsed,
-        estimated_cost: formatCost(writeUsage.cost),
-        // What caching did, in words. The raw cache_read and
-        // cache_write numbers are the ones in the documentation, but
-        // they do not say which of three states this request was in,
-        // and the three look similar until you know what to compare.
-        caching: {
-          hit_rate: `${Math.round(writeUsage.cacheHitRate * 100)}%`,
-          read_from_cache: writeUsage.cacheRead,
-          written_to_cache: writeUsage.cacheWrite,
-          fresh: writeUsage.input,
-          what_happened: describeCacheOutcome(writeUsage),
-        },
-        response: {
-          id: writeResponse.id,
-          model: writeResponse.model,
-          stop_reason: writeResponse.stop_reason,
-          usage: writeResponse.usage,
-        },
-      },
-      {
-        direction: "in",
-        iteration: 2,
-        actor: "claude",
-        because: "the writing call returned the answer",
-      },
-    );
+    logWriteResponse(log, writeResponse, writeElapsed, text, writeUsage);
 
     if (writeResponse.stop_reason === "max_tokens") {
-      log.error(
-        "Reply was truncated: it hit the max_tokens ceiling.",
-        { max_tokens: MAX_TOKENS, output_tokens: writeUsage.output },
-        {
-          iteration: 2,
-          actor: "claude",
-          because: "the reply reached max_tokens before finishing",
-        },
-      );
+      logTruncated(log, writeUsage);
     }
 
-    // The comparison worth making. Two calls means the input was paid
-    // for twice, and the planning output was paid for and discarded.
-    log.info(
-      `Chain complete · 2 requests · ${formatCost(totalCost)}`,
-      {
-        plan_cost: formatCost(planUsage.cost),
-        write_cost: formatCost(writeUsage.cost),
-        total_cost: totalCost,
-        note:
-          "Ask the same question under Single call and compare. The plan " +
-          "is paid for and thrown away, so this is only worth it when the " +
-          "answer is visibly better organised for it.",
-      },
-      {
-        iteration: 2,
-        actor: "app",
-        because: "both calls have completed",
-      },
-    );
+    logChainSummary(log, totalCost, planUsage, writeUsage);
 
     return { text, cost: totalCost, requests: 2 };
   },
 };
+
+// ---------------------------------------------------------------------------
+// Activity-log rows: what the panel shows for each step above
+// ---------------------------------------------------------------------------
+//
+// Everything below builds a log row. None of it changes what is sent to
+// Anthropic or what comes back, which is why it sits here rather than
+// inside run(): the steps above should read as the pattern, and this is
+// the commentary on them.
+//
+// Same arrangement as the other patterns, deliberately. A reader who
+// has seen one should recognise the rest.
+
+function logPlanRequest(
+  log: Logger,
+  planRequest: Anthropic.MessageCreateParams,
+  messages: Anthropic.MessageParam[],
+): void {
+  log.api(
+    `Planning call · ${messages.length} message(s)`,
+    {
+      request: planRequest,
+      note:
+        "Tools are deliberately not offered on this call. The planner " +
+        "decides structure; running a tool is the writer's job, and a " +
+        "tool result fetched here would be thrown away with the outline.",
+    },
+    {
+      direction: "out",
+      iteration: 1,
+      actor: "app",
+      because: "this pattern plans before it writes",
+    },
+  );
+}
+
+function logPlanResponse(
+  log: Logger,
+  planResponse: Anthropic.Message,
+  planElapsed: number,
+  plan: string,
+  planUsage: UsageSummary,
+): void {
+  log.api(
+    `${planUsage.totalInput} in / ${planUsage.output} out · ` +
+      `${formatCost(planUsage.cost)} · ${planElapsed}ms`,
+    {
+      iteration: 1,
+      elapsed_ms: planElapsed,
+      estimated_cost: formatCost(planUsage.cost),
+      // The plan itself, which the user never sees. Worth logging in
+      // full: when a chained answer comes out badly structured, the
+      // outline is where to look, and without this it is invisible.
+      plan,
+      response: {
+        id: planResponse.id,
+        model: planResponse.model,
+        stop_reason: planResponse.stop_reason,
+        usage: planResponse.usage,
+      },
+    },
+    {
+      direction: "in",
+      iteration: 1,
+      actor: "claude",
+      because: "the planning call returned an outline",
+    },
+  );
+}
+
+function logPlanOutline(log: Logger, plan: string): void {
+  log.info(
+    `Plan: ${plan.split("\n").filter((line) => line.trim()).length} line(s)`,
+    { plan },
+    {
+      iteration: 1,
+      actor: "app",
+      because:
+        "the outline goes into the next call's system prompt, not into " +
+        "the conversation — the user never said it and should not see it",
+    },
+  );
+}
+
+// warn, not error: the chain completes and returns a good answer — it simply cost more than it needed to.
+function logPlanNotNeeded(log: Logger, plan: string): void {
+  log.warn(
+    "The planner says this question did not need a plan",
+    {
+      plan,
+      note:
+        "Chaining costs two requests whatever the question. On " +
+        "something this short the planning call is pure overhead — " +
+        "switch to Single call and compare the cost.",
+    },
+    {
+      iteration: 1,
+      actor: "claude",
+      because: "the outline reports that the question is trivial",
+    },
+  );
+}
+
+function logWriteRequest(
+  log: Logger,
+  writerSystem: string,
+  writeRequest: Anthropic.MessageCreateParams,
+  messages: Anthropic.MessageParam[],
+  system: string | null,
+): void {
+  log.api(
+    `Writing call · ${messages.length} message(s) · ` +
+      `system grew to ${writerSystem.length} chars`,
+    {
+      // Worth comparing against the tool loop, where request 2 carries
+      // THREE messages. Here it carries one, the same as request 1.
+      //
+      // The difference is where the new information went. A tool
+      // result is part of the dialogue — the API requires the
+      // tool_use block and its tool_result to appear as paired turns
+      // in `messages`. A plan is not something anyone said, so it
+      // goes into `system` instead, and the conversation is unchanged.
+      //
+      // Same number of requests, two completely different shapes.
+      what_changed: {
+        messages: `${messages.length} — unchanged from the planning call`,
+        system_before: `${(system ?? "").length} chars`,
+        system_after: `${writerSystem.length} chars`,
+        note:
+          "The plan was folded into the system prompt, not appended to " +
+          "the conversation. Contrast the Tool loop pattern, where " +
+          "request 2 carries two extra messages.",
+      },
+      request: writeRequest,
+    },
+    {
+      direction: "out",
+      iteration: 2,
+      actor: "app",
+      because: "the plan is ready, so the answer can now be written",
+    },
+  );
+}
+
+function logWriteResponse(
+  log: Logger,
+  writeResponse: Anthropic.Message,
+  writeElapsed: number,
+  text: string,
+  writeUsage: UsageSummary,
+): void {
+  log.api(
+    `${writeUsage.totalInput} in / ${writeUsage.output} out · ` +
+      `${formatCost(writeUsage.cost)} · ${writeElapsed}ms · ` +
+      `${writeResponse.stop_reason} · ${snippet(text)}`,
+    {
+      iteration: 2,
+      elapsed_ms: writeElapsed,
+      estimated_cost: formatCost(writeUsage.cost),
+      // What caching did, in words. The raw cache_read and
+      // cache_write numbers are the ones in the documentation, but
+      // they do not say which of three states this request was in,
+      // and the three look similar until you know what to compare.
+      caching: {
+        hit_rate: `${Math.round(writeUsage.cacheHitRate * 100)}%`,
+        read_from_cache: writeUsage.cacheRead,
+        written_to_cache: writeUsage.cacheWrite,
+        fresh: writeUsage.input,
+        what_happened: describeCacheOutcome(writeUsage),
+      },
+      response: {
+        id: writeResponse.id,
+        model: writeResponse.model,
+        stop_reason: writeResponse.stop_reason,
+        usage: writeResponse.usage,
+      },
+    },
+    {
+      direction: "in",
+      iteration: 2,
+      actor: "claude",
+      because: "the writing call returned the answer",
+    },
+  );
+}
+
+function logTruncated(log: Logger, writeUsage: UsageSummary): void {
+  log.error(
+    "Reply was truncated: it hit the max_tokens ceiling.",
+    { max_tokens: MAX_TOKENS, output_tokens: writeUsage.output },
+    {
+      iteration: 2,
+      actor: "claude",
+      because: "the reply reached max_tokens before finishing",
+    },
+  );
+}
+
+// The comparison worth making. Two calls means the input was paid
+// for twice, and the planning output was paid for and discarded.
+function logChainSummary(
+  log: Logger,
+  totalCost: number,
+  planUsage: UsageSummary,
+  writeUsage: UsageSummary,
+): void {
+  log.info(
+    `Chain complete · 2 requests · ${formatCost(totalCost)}`,
+    {
+      plan_cost: formatCost(planUsage.cost),
+      write_cost: formatCost(writeUsage.cost),
+      total_cost: totalCost,
+      note:
+        "Ask the same question under Single call and compare. The plan " +
+        "is paid for and thrown away, so this is only worth it when the " +
+        "answer is visibly better organised for it.",
+    },
+    {
+      iteration: 2,
+      actor: "app",
+      because: "both calls have completed",
+    },
+  );
+}
