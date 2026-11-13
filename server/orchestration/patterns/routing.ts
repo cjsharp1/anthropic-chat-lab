@@ -50,6 +50,7 @@
  * happens.
  */
 
+import type Anthropic from "@anthropic-ai/sdk";
 import { client, MAX_TOKENS } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
@@ -60,10 +61,16 @@ import {
   withCachedSystem,
   withCachedTools,
 } from "../../caching.js";
-import { formatCost, snippet, summariseUsage } from "../../usage.js";
+import {
+  formatCost,
+  snippet,
+  summariseUsage,
+  type UsageSummary,
+} from "../../usage.js";
 import { thinkingConfig } from "../../thinking.js";
 import { withEffort } from "../../effort.js";
 import type { Pattern, PatternContext, PatternResult } from "../types.js";
+import type { Logger } from "../../logger.js";
 
 /** Enough for one word. A classifier that writes an essay is misbehaving. */
 const ROUTE_MAX_TOKENS = 20;
@@ -261,23 +268,7 @@ export const routing: Pattern = {
       ...withEffort(effort),
     };
 
-    log.api(
-      `Classifying with ${deciding}`,
-      {
-        request: routeRequest,
-        note:
-          "A different model from the one that answers. Picking one of " +
-          "five labels needs no reasoning and no long output, so it goes " +
-          "to the cheapest model available. Compare the two cost figures " +
-          "below — that ratio is the argument for routing.",
-      },
-      {
-        direction: "out",
-        iteration: 1,
-        actor: "app",
-        because: "this pattern classifies before it answers",
-      },
-    );
+    logClassifyRequest(log, deciding, routeRequest);
 
     const routeStarted = Date.now();
 
@@ -305,66 +296,13 @@ export const routing: Pattern = {
 
     const wasExact = raw === chosen.id;
 
-    log.api(
-      `${routeUsage.totalInput} in / ${routeUsage.output} out · ` +
-        `${formatCost(routeUsage.cost)} · ${routeElapsed}ms`,
-      {
-        iteration: 1,
-        elapsed_ms: routeElapsed,
-        estimated_cost: formatCost(routeUsage.cost),
-        classifier_said: raw,
-        response: {
-          model: routeResponse.model,
-          stop_reason: routeResponse.stop_reason,
-          usage: routeResponse.usage,
-        },
-      },
-      {
-        direction: "in",
-        iteration: 1,
-        actor: "claude",
-        because: "the classifier returned a category",
-      },
-    );
+    logClassifyResponse(log, routeResponse, routeElapsed, raw, routeUsage);
 
     if (!wasExact) {
-      // warn, not error: the lenient match recovered and the right specialist answered.
-      log.warn(
-        `Classifier returned "${raw}", matched to "${chosen.id}"`,
-        {
-          returned: raw,
-          matched: chosen.id,
-          note:
-            "The classifier was told to reply with one word and did not. " +
-            "Matching leniently and falling back to 'general' is what " +
-            "stops an unexpected reply breaking the request — a router " +
-            "that trusts its classifier's output exactly will eventually " +
-            "crash on a stray full stop.",
-        },
-        {
-          iteration: 1,
-          actor: "app",
-          because: "the reply did not exactly match a known category id",
-        },
-      );
+      logRouteMatched(log, raw, chosen);
     }
 
-    log.info(
-      `Route: ${chosen.name}`,
-      {
-        route: chosen.id,
-        criteria: chosen.criteria,
-        specialist_system: chosen.system,
-        note:
-          "This replaces the system prompt selected in Settings. Ask a " +
-          "debugging question and a conceptual one and compare the routes.",
-      },
-      {
-        iteration: 1,
-        actor: "claude",
-        because: `the classifier chose "${chosen.id}"`,
-      },
-    );
+    logRouteChosen(log, chosen);
 
     // --- Call two: answer ----------------------------------------------------
     //
@@ -407,21 +345,7 @@ export const routing: Pattern = {
       ...withEffort(effort),
     };
 
-    log.api(
-      `Answering with ${producing} as ${chosen.name}`,
-      {
-        request: answerRequest,
-        replaced_system_prompt: system
-          ? `${system.slice(0, 60)}… (${system.length} chars, not used)`
-          : "(none was selected)",
-      },
-      {
-        direction: "out",
-        iteration: 2,
-        actor: "app",
-        because: `the question was routed to the ${chosen.name} specialist`,
-      },
-    );
+    logAnswerRequest(log, producing, chosen, answerRequest, system);
 
     const answerStarted = Date.now();
 
@@ -454,77 +378,244 @@ export const routing: Pattern = {
     );
     totalCost += answerUsage.cost;
 
-    log.api(
-      `${answerUsage.totalInput} in / ${answerUsage.output} out · ` +
-        `${formatCost(answerUsage.cost)} · ${answerElapsed}ms · ` +
-        `${answerResponse.stop_reason} · ${snippet(text)}`,
-      {
-        iteration: 2,
-        elapsed_ms: answerElapsed,
-        estimated_cost: formatCost(answerUsage.cost),
-        // What caching did, in words. The raw cache_read and
-        // cache_write numbers are the ones in the documentation, but
-        // they do not say which of three states this request was in,
-        // and the three look similar until you know what to compare.
-        caching: {
-          hit_rate: `${Math.round(answerUsage.cacheHitRate * 100)}%`,
-          read_from_cache: answerUsage.cacheRead,
-          written_to_cache: answerUsage.cacheWrite,
-          fresh: answerUsage.input,
-          what_happened: describeCacheOutcome(answerUsage),
-        },
-        response: {
-          model: answerResponse.model,
-          stop_reason: answerResponse.stop_reason,
-          usage: answerResponse.usage,
-        },
-      },
-      {
-        direction: "in",
-        iteration: 2,
-        actor: "claude",
-        because: "the specialist returned the answer",
-      },
-    );
+    logAnswerResponse(log, answerResponse, answerElapsed, text, answerUsage);
 
     if (answerResponse.stop_reason === "max_tokens") {
-      log.error(
-        "Reply was truncated: it hit the max_tokens ceiling.",
-        { max_tokens: MAX_TOKENS, output_tokens: answerUsage.output },
-        {
-          iteration: 2,
-          actor: "claude",
-          because: "the reply reached max_tokens before finishing",
-        },
-      );
+      logTruncated(log, answerUsage);
     }
 
     // The ratio that justifies the pattern.
     const share = totalCost > 0 ? (routeUsage.cost / totalCost) * 100 : 0;
 
-    log.info(
-      `Routed to ${chosen.name} · ${formatCost(totalCost)} total · ` +
-        `classifier was ${share.toFixed(1)}% of it`,
-      {
-        route: chosen.id,
-        classifier_model: deciding,
-        classifier_cost: formatCost(routeUsage.cost),
-        answer_model: producing,
-        answer_cost: formatCost(answerUsage.cost),
-        classifier_share_percent: Number(share.toFixed(1)),
-        total_cost: totalCost,
-        note:
-          "Routing is only worth it while the classifier is a small " +
-          "fraction of the bill. Run the same classifier on the main " +
-          "model and that fraction stops being negligible.",
-      },
-      {
-        iteration: 2,
-        actor: "app",
-        because: "both calls have completed",
-      },
+    logRoutingSummary(
+      log,
+      producing,
+      deciding,
+      totalCost,
+      routeUsage,
+      chosen,
+      answerUsage,
+      share,
     );
 
     return { text, cost: totalCost, requests: 2 };
   },
 };
+
+// ---------------------------------------------------------------------------
+// Activity-log rows: what the panel shows for each step above
+// ---------------------------------------------------------------------------
+//
+// Everything below builds a log row. None of it changes what is sent to
+// Anthropic or what comes back, which is why it sits here rather than
+// inside run(): the steps above should read as the pattern, and this is
+// the commentary on them.
+//
+// Same arrangement as the other patterns, deliberately. A reader who
+// has seen one should recognise the rest.
+
+function logClassifyRequest(
+  log: Logger,
+  deciding: string,
+  routeRequest: Anthropic.MessageCreateParams,
+): void {
+  log.api(
+    `Classifying with ${deciding}`,
+    {
+      request: routeRequest,
+      note:
+        "A different model from the one that answers. Picking one of " +
+        "five labels needs no reasoning and no long output, so it goes " +
+        "to the cheapest model available. Compare the two cost figures " +
+        "below — that ratio is the argument for routing.",
+    },
+    {
+      direction: "out",
+      iteration: 1,
+      actor: "app",
+      because: "this pattern classifies before it answers",
+    },
+  );
+}
+
+function logClassifyResponse(
+  log: Logger,
+  routeResponse: Anthropic.Message,
+  routeElapsed: number,
+  raw: string,
+  routeUsage: UsageSummary,
+): void {
+  log.api(
+    `${routeUsage.totalInput} in / ${routeUsage.output} out · ` +
+      `${formatCost(routeUsage.cost)} · ${routeElapsed}ms`,
+    {
+      iteration: 1,
+      elapsed_ms: routeElapsed,
+      estimated_cost: formatCost(routeUsage.cost),
+      classifier_said: raw,
+      response: {
+        model: routeResponse.model,
+        stop_reason: routeResponse.stop_reason,
+        usage: routeResponse.usage,
+      },
+    },
+    {
+      direction: "in",
+      iteration: 1,
+      actor: "claude",
+      because: "the classifier returned a category",
+    },
+  );
+}
+
+// warn, not error: the lenient match recovered and the right specialist answered.
+function logRouteMatched(log: Logger, raw: string, chosen: Route): void {
+  log.warn(
+    `Classifier returned "${raw}", matched to "${chosen.id}"`,
+    {
+      returned: raw,
+      matched: chosen.id,
+      note:
+        "The classifier was told to reply with one word and did not. " +
+        "Matching leniently and falling back to 'general' is what " +
+        "stops an unexpected reply breaking the request — a router " +
+        "that trusts its classifier's output exactly will eventually " +
+        "crash on a stray full stop.",
+    },
+    {
+      iteration: 1,
+      actor: "app",
+      because: "the reply did not exactly match a known category id",
+    },
+  );
+}
+
+function logRouteChosen(log: Logger, chosen: Route): void {
+  log.info(
+    `Route: ${chosen.name}`,
+    {
+      route: chosen.id,
+      criteria: chosen.criteria,
+      specialist_system: chosen.system,
+      note:
+        "This replaces the system prompt selected in Settings. Ask a " +
+        "debugging question and a conceptual one and compare the routes.",
+    },
+    {
+      iteration: 1,
+      actor: "claude",
+      because: `the classifier chose "${chosen.id}"`,
+    },
+  );
+}
+
+function logAnswerRequest(
+  log: Logger,
+  producing: string,
+  chosen: Route,
+  answerRequest: Anthropic.MessageCreateParams,
+  system: string | null,
+): void {
+  log.api(
+    `Answering with ${producing} as ${chosen.name}`,
+    {
+      request: answerRequest,
+      replaced_system_prompt: system
+        ? `${system.slice(0, 60)}… (${system.length} chars, not used)`
+        : "(none was selected)",
+    },
+    {
+      direction: "out",
+      iteration: 2,
+      actor: "app",
+      because: `the question was routed to the ${chosen.name} specialist`,
+    },
+  );
+}
+
+function logAnswerResponse(
+  log: Logger,
+  answerResponse: Anthropic.Message,
+  answerElapsed: number,
+  text: string,
+  answerUsage: UsageSummary,
+): void {
+  log.api(
+    `${answerUsage.totalInput} in / ${answerUsage.output} out · ` +
+      `${formatCost(answerUsage.cost)} · ${answerElapsed}ms · ` +
+      `${answerResponse.stop_reason} · ${snippet(text)}`,
+    {
+      iteration: 2,
+      elapsed_ms: answerElapsed,
+      estimated_cost: formatCost(answerUsage.cost),
+      // What caching did, in words. The raw cache_read and
+      // cache_write numbers are the ones in the documentation, but
+      // they do not say which of three states this request was in,
+      // and the three look similar until you know what to compare.
+      caching: {
+        hit_rate: `${Math.round(answerUsage.cacheHitRate * 100)}%`,
+        read_from_cache: answerUsage.cacheRead,
+        written_to_cache: answerUsage.cacheWrite,
+        fresh: answerUsage.input,
+        what_happened: describeCacheOutcome(answerUsage),
+      },
+      response: {
+        model: answerResponse.model,
+        stop_reason: answerResponse.stop_reason,
+        usage: answerResponse.usage,
+      },
+    },
+    {
+      direction: "in",
+      iteration: 2,
+      actor: "claude",
+      because: "the specialist returned the answer",
+    },
+  );
+}
+
+function logTruncated(log: Logger, answerUsage: UsageSummary): void {
+  log.error(
+    "Reply was truncated: it hit the max_tokens ceiling.",
+    { max_tokens: MAX_TOKENS, output_tokens: answerUsage.output },
+    {
+      iteration: 2,
+      actor: "claude",
+      because: "the reply reached max_tokens before finishing",
+    },
+  );
+}
+
+function logRoutingSummary(
+  log: Logger,
+  producing: string,
+  deciding: string,
+  totalCost: number,
+  routeUsage: UsageSummary,
+  chosen: Route,
+  answerUsage: UsageSummary,
+  share: number,
+): void {
+  log.info(
+    `Routed to ${chosen.name} · ${formatCost(totalCost)} total · ` +
+      `classifier was ${share.toFixed(1)}% of it`,
+    {
+      route: chosen.id,
+      classifier_model: deciding,
+      classifier_cost: formatCost(routeUsage.cost),
+      answer_model: producing,
+      answer_cost: formatCost(answerUsage.cost),
+      classifier_share_percent: Number(share.toFixed(1)),
+      total_cost: totalCost,
+      note:
+        "Routing is only worth it while the classifier is a small " +
+        "fraction of the bill. Run the same classifier on the main " +
+        "model and that fraction stops being negligible.",
+    },
+    {
+      iteration: 2,
+      actor: "app",
+      because: "both calls have completed",
+    },
+  );
+}
