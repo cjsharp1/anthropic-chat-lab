@@ -69,6 +69,15 @@ let cachedKey: string | null = null;
 /**
  * Returns an SDK client for the current key, building one if needed.
  *
+ * Call this at the point of use — `getClient().messages.create(...)` —
+ * and never store the result. The key can arrive after startup, from
+ * the Settings dialog, and can change while the process runs. A
+ * module-level `const client = getClient()` would capture whatever
+ * key existed at import time, which on a fresh clone is none at all.
+ *
+ * The caching below means that costs nothing: the same client comes
+ * back every time until the key actually changes.
+ *
  * Both settings below are passed explicitly rather than left to the SDK's
  * environment detection. Many corporate machines reach Claude through an LLM
  * gateway, configured in the shell environment as ANTHROPIC_BASE_URL and
@@ -83,7 +92,7 @@ let cachedKey: string | null = null;
  *   baseURL  pinned to the public API, ignoring any ANTHROPIC_BASE_URL
  *   apiKey   taken from api-key.ts only, ignoring any ANTHROPIC_AUTH_TOKEN
  */
-function getClient(): Anthropic {
+export function getClient(): Anthropic {
   const key = getKey();
 
   if (key === null) throw new MissingKeyError();
@@ -100,32 +109,3 @@ function getClient(): Anthropic {
 
   return cached;
 }
-
-/**
- * The shared client, as every caller sees it.
- *
- * This is a Proxy rather than an Anthropic instance, because the real client
- * cannot be built at import time any more — at that point there may be no key,
- * and the key can change later. The Proxy defers the decision: each property
- * access (`client.messages`) resolves against whichever client the current key
- * calls for.
- *
- * The payoff is that nothing else in the codebase had to change. Every call
- * site still reads `client.messages.create(...)`, and the eight files that
- * import this do not need to know a key can arrive late.
- *
- * The cast is needed because a Proxy's type cannot be inferred from its
- * handler. The handler forwards every property to a real Anthropic instance,
- * so the surface genuinely is an Anthropic — TypeScript just cannot see that.
- */
-export const client = new Proxy({} as Anthropic, {
-  get(_target, property, receiver) {
-    const real = getClient();
-    const value = Reflect.get(real, property, receiver);
-
-    // Methods must stay bound to the real client. Without this, pulling a
-    // function off the proxy and calling it would run with the wrong `this`
-    // and fail inside the SDK.
-    return typeof value === "function" ? value.bind(real) : value;
-  },
-}) as Anthropic;

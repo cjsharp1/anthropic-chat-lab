@@ -31,7 +31,7 @@
  * happens when the ceiling is too low for the level.
  */
 
-import { client } from "../server/anthropic.js";
+import { getClient } from "../server/anthropic.js";
 import { summariseUsage, formatCost } from "../server/usage.js";
 
 /** The levels, cheapest first. */
@@ -95,7 +95,7 @@ async function measure(
 ): Promise<Result> {
   const started = Date.now();
 
-  const response = await client.messages.create({
+  const response = await getClient().messages.create({
     model,
     max_tokens: maxTokens,
     // Summarized, so the thinking is measurable rather than an empty

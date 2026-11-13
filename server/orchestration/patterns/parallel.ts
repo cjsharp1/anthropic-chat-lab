@@ -52,7 +52,7 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { client, MAX_TOKENS } from "../../anthropic.js";
+import { getClient, MAX_TOKENS } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
   describeCacheOutcome,
@@ -223,7 +223,7 @@ export const parallel: Pattern = {
           // .create(), not .stream(). Three streams arriving at once
           // would interleave into nonsense in the transcript, and none
           // of this text is what the user finally reads anyway.
-          const response = await client.messages.create(branchRequest);
+          const response = await getClient().messages.create(branchRequest);
 
           const elapsedMs = Date.now() - started;
 
@@ -330,7 +330,7 @@ export const parallel: Pattern = {
 
     const mergeStarted = Date.now();
 
-    const stream = client.messages.stream(mergeRequest);
+    const stream = getClient().messages.stream(mergeRequest);
 
     stream.on("text", (fragment: string) => emitText(fragment));
 

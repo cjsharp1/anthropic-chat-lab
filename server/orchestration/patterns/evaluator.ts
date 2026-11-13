@@ -53,7 +53,7 @@
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type Anthropic from "@anthropic-ai/sdk";
-import { client } from "../../anthropic.js";
+import { getClient } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
   describeCacheOutcome,
@@ -282,7 +282,7 @@ export const evaluator: Pattern = {
       // Not streamed. A draft that is about to be rejected should not
       // be typing itself into the transcript — the user would watch an
       // answer appear and then be replaced, which is worse than waiting.
-      const draftResponse = await client.messages.create(draftRequest);
+      const draftResponse = await getClient().messages.create(draftRequest);
 
       requests += 1;
       const draftElapsed = Date.now() - draftStarted;
@@ -363,7 +363,7 @@ export const evaluator: Pattern = {
 
       const evalStarted = Date.now();
 
-      const evalResponse = await client.messages.parse(evalRequest);
+      const evalResponse = await getClient().messages.parse(evalRequest);
 
       requests += 1;
       const evalElapsed = Date.now() - evalStarted;

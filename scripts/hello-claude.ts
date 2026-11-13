@@ -30,7 +30,7 @@ import {
   NotFoundError,
   RateLimitError,
 } from "@anthropic-ai/sdk";
-import { client, MissingKeyError, MODEL } from "../server/anthropic.js";
+import { getClient, MissingKeyError, MODEL } from "../server/anthropic.js";
 
 /**
  * Sends one message and prints whatever text comes back.
@@ -43,7 +43,7 @@ async function main(): Promise<void> {
   //   max_tokens — a hard ceiling on the reply length. Hitting it truncates
   //                the response mid-sentence, so do not set it meanly.
   //   messages   — the conversation so far. One user turn, in this case.
-  const response = await client.messages.create({
+  const response = await getClient().messages.create({
     model: MODEL,
     max_tokens: 1024,
     messages: [

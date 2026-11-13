@@ -42,7 +42,7 @@
  * rather than handling it.
  *
  * Note the SDK returns the result on `parsed_output`, and that this
- * only works with `client.messages.parse()` rather than `.create()`.
+ * only works with `getClient().messages.parse()` rather than `.create()`.
  *
  * ---------------------------------------------------------------------------
  * Why the planner runs on Haiku
@@ -87,7 +87,7 @@
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type Anthropic from "@anthropic-ai/sdk";
-import { client, MAX_TOKENS } from "../../anthropic.js";
+import { getClient, MAX_TOKENS } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
   describeCacheOutcome,
@@ -277,7 +277,7 @@ export const orchestrator: Pattern = {
 
     // .parse() rather than .create(): it applies the schema and
     // returns the validated object on parsed_output.
-    const planResponse = await client.messages.parse(planRequest);
+    const planResponse = await getClient().messages.parse(planRequest);
 
     const planElapsed = Date.now() - planStarted;
     const planUsage = summariseUsage(planResponse.usage, planResponse.model);
@@ -345,7 +345,7 @@ export const orchestrator: Pattern = {
         logWorkerRequest(log, subtasks, workerRequest, i, subtask);
 
         try {
-          const response = await client.messages.create(workerRequest);
+          const response = await getClient().messages.create(workerRequest);
 
           const elapsedMs = Date.now() - started;
           const text = response.content
@@ -460,7 +460,7 @@ export const orchestrator: Pattern = {
 
     const synthStarted = Date.now();
 
-    const stream = client.messages.stream(synthRequest);
+    const stream = getClient().messages.stream(synthRequest);
 
     stream.on("text", (fragment: string) => emitText(fragment));
 

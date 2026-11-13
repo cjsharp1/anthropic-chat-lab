@@ -86,12 +86,16 @@ Rules that are not negotiable:
   cannot hold the key.
 - **Never log it.** Log the masked hint if you must log anything.
 
-`server/anthropic.ts` exports `client` as a `Proxy`, not an `Anthropic`
-instance. That is what lets the key arrive after startup and change at
-runtime while every call site still reads `client.messages.create(...)`.
-If you need the real client, call `getClient()` inside that module —
-do not reintroduce a module-level `new Anthropic()`, which would
-capture whatever key existed at import time.
+`server/anthropic.ts` exports `getClient()`. **Call it at the point of
+use** — `getClient().messages.create(...)` — and do not keep the
+result: no module-level `const client = getClient()`, and no
+module-level `new Anthropic()`. Either would capture whatever key
+existed at import time, which on a fresh clone is none at all.
+
+The key can arrive after startup, from the Settings dialog, and can
+change while the process runs. `getClient()` caches on the key, so
+calling it per request costs nothing — the same client comes back
+until the key actually changes.
 
 Scripts in `scripts/` are separate processes with no browser, so they
 read `ANTHROPIC_API_KEY` from `.env` and cannot see a key set in
@@ -162,7 +166,8 @@ refactor:
 ## Style
 
 - TypeScript is `strict`. Prefer narrowing over `as`; the existing
-  casts are for DOM lookups and the SDK proxy, both unavoidable.
+  casts are for DOM lookups and two places where a schema object is
+  handed to the SDK, in `caching.ts` and `tools/api-format.ts`.
 - ES modules with `.js` extensions on relative imports (`NodeNext`),
   including from `.ts` files. This looks wrong and is correct.
 - Line endings are LF, enforced by `.gitattributes`.

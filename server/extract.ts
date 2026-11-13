@@ -39,7 +39,7 @@
 
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { client } from "./anthropic.js";
+import { getClient } from "./anthropic.js";
 import { summariseUsage } from "./usage.js";
 import type { Logger } from "./logger.js";
 
@@ -137,7 +137,7 @@ export async function extractFields(
       "come back as prose or wrapped in a code fence.",
   });
 
-  const response = await client.messages.parse(request);
+  const response = await getClient().messages.parse(request);
 
   const usage = summariseUsage(response.usage, response.model);
 

@@ -48,7 +48,7 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { client, MAX_TOKENS } from "../../anthropic.js";
+import { getClient, MAX_TOKENS } from "../../anthropic.js";
 import { runOneTool } from "../tool-runner.js";
 import { logServerToolActivity } from "../../tools/server-tool-log.js";
 import { serverToolCounts } from "../../tools/server-tools.js";
@@ -267,7 +267,7 @@ export const toolLoop: Pattern = {
       // This matters for more than looks. A long reply can take 30
       // seconds, and a non-streaming request that long risks hitting an
       // HTTP timeout somewhere in the chain.
-      const stream = client.messages.stream(request);
+      const stream = getClient().messages.stream(request);
 
       // Forward each fragment to the browser as it arrives.
       stream.on("text", (fragment: string) => {

@@ -51,7 +51,7 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { client, MAX_TOKENS } from "../../anthropic.js";
+import { getClient, MAX_TOKENS } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
   describeCacheOutcome,
@@ -270,7 +270,7 @@ export const routing: Pattern = {
 
     const routeStarted = Date.now();
 
-    const routeResponse = await client.messages.create(routeRequest);
+    const routeResponse = await getClient().messages.create(routeRequest);
 
     const routeElapsed = Date.now() - routeStarted;
 
@@ -347,7 +347,7 @@ export const routing: Pattern = {
 
     const answerStarted = Date.now();
 
-    const stream = client.messages.stream(answerRequest);
+    const stream = getClient().messages.stream(answerRequest);
 
     stream.on("text", (fragment: string) => emitText(fragment));
 

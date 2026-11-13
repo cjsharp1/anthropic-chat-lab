@@ -49,7 +49,7 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { client, MAX_TOKENS } from "../../anthropic.js";
+import { getClient, MAX_TOKENS } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
   describeCacheOutcome,
@@ -175,7 +175,7 @@ export const singleCall: Pattern = {
     // .stream() rather than .create(). The request is identical; what
     // changes is that fragments arrive as they are generated, so the
     // reply types out rather than appearing all at once after a pause.
-    const stream = client.messages.stream(request);
+    const stream = getClient().messages.stream(request);
 
     stream.on("text", (fragment: string) => emitText(fragment));
 

@@ -47,7 +47,7 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { client, MAX_TOKENS } from "../../anthropic.js";
+import { getClient, MAX_TOKENS } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
   describeCacheOutcome,
@@ -186,7 +186,7 @@ export const chaining: Pattern = {
     // .create() rather than .stream(), because nothing here is shown to
     // the user. Streaming exists to fill a wait with something readable,
     // and this output is scaffolding they should never see.
-    const planResponse = await client.messages.create(planRequest);
+    const planResponse = await getClient().messages.create(planRequest);
 
     const planElapsed = Date.now() - planStarted;
 
@@ -274,7 +274,7 @@ export const chaining: Pattern = {
     const writeStarted = Date.now();
 
     // Streaming here, because this IS what the user sees.
-    const stream = client.messages.stream(writeRequest);
+    const stream = getClient().messages.stream(writeRequest);
 
     stream.on("text", (fragment: string) => emitText(fragment));
 
