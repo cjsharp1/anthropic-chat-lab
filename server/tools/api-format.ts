@@ -85,6 +85,31 @@ export function toApiTool(tool: AnyLabTool): Anthropic.Tool {
   // nothing and says what is meant.
   schema["required"] ??= [];
 
+  // Guarantee additionalProperties: false, for the same reason.
+  //
+  // z.toJSONSchema sets this for every local tool, so for a long time
+  // nothing here had to. An MCP tool's schema is the remote server's
+  // own JSON Schema carried verbatim, and a server is under no
+  // obligation to include the key — the MCP Lab's own tools do not.
+  // Sending one of those alongside strict: true gets the whole request
+  // rejected:
+  //
+  //   tools.6.custom: For 'object' type, 'additionalProperties' must be
+  //   explicitly set to false
+  //
+  // Note "tools.6": the failure names the first BORROWED tool, and the
+  // six local ones ahead of it are fine. That is the shape of every bug
+  // in this file — an assumption that held because every tool came from
+  // Zod, met by a tool that did not.
+  //
+  // Setting it rather than refusing to send the tool: strict mode's
+  // contract is that the arguments match the schema's shape exactly,
+  // and a schema that does not pin this is not describing a looser
+  // tool, only an underspecified one. Anything the model sends beyond
+  // the declared properties would be rejected by the remote server's
+  // own validation anyway.
+  normaliseObjectSchemas(schema);
+
   // Remove the numeric bounds that strict mode does not accept.
   //
   // Zod turns .min(1).max(5) into "minimum" and "maximum", and the API
@@ -116,6 +141,43 @@ export function toApiTool(tool: AnyLabTool): Anthropic.Tool {
     // nothing.
     strict: true,
   };
+}
+
+/**
+ * Sets additionalProperties: false on every object in a schema.
+ *
+ * Recursive, because a nested object is still an object as far as the
+ * API's strict mode is concerned: a top-level fix would send a tool
+ * whose outer shape is pinned and whose nested one is not, and the
+ * request would be rejected naming the inner path instead.
+ *
+ * Only touches schemas that say type: "object". A node without a type,
+ * or with some other type, is left exactly as the server published it
+ * — this normalises for strict mode, it does not rewrite the server's
+ * schema language.
+ *
+ * An explicit `true` is overwritten rather than respected. A server
+ * asking for open-ended arguments cannot have that under strict mode,
+ * and the choice is between tightening the schema and refusing to send
+ * the tool at all.
+ */
+function normaliseObjectSchemas(node: unknown): void {
+  if (Array.isArray(node)) {
+    for (const item of node) normaliseObjectSchemas(item);
+    return;
+  }
+
+  if (typeof node !== "object" || node === null) return;
+
+  const record = node as Record<string, unknown>;
+
+  if (record["type"] === "object") {
+    record["additionalProperties"] = false;
+  }
+
+  for (const value of Object.values(record)) {
+    normaliseObjectSchemas(value);
+  }
 }
 
 /**

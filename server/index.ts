@@ -64,7 +64,11 @@ import { SERVER_TOOLS, SERVER_TOOLS_BY_NAME } from "./tools/server-tools.js";
 import { CACHE_MODES, DEFAULT_CACHE_MODE, parseCacheMode } from "./caching.js";
 import { extractFields } from "./extract.js";
 import { toApiTools } from "./tools/api-format.js";
-import { assertUniqueToolNames, TOOLS } from "./tools/registry.js";
+import {
+  assertUniqueToolNames,
+  getActiveTools,
+  TOOLS,
+} from "./tools/registry.js";
 import {
   connect as mcpConnect,
   disconnect as mcpDisconnect,
@@ -774,7 +778,31 @@ app.post("/api/chat", async (req, res) => {
     // rather than trusting the list means an unknown name sent by hand
     // cannot conjure a tool that does not exist.
     const requested = Array.isArray(body.tools) ? body.tools.map(String) : [];
-    const activeTools = TOOLS.filter((t) => requested.includes(t.name));
+
+    // getActiveTools(), not TOOLS: the local registry cannot see a tool
+    // that arrived over an MCP connection.
+    //
+    // This was the bug behind "the chat lab never calls my MCP server".
+    // GET /api/tools already listed the borrowed tools, so the Tools tab
+    // showed all of them and the header said "Tools: all 11" — but this
+    // line filtered the request against the LOCAL registry alone, so the
+    // borrowed ones were dropped before the array was built and only the
+    // local tools were ever sent. Claude was never told roll_dice
+    // existed, so of course it never asked for it; it reached for
+    // whatever else could produce a number instead.
+    //
+    // Nothing downstream needed changing: findTool() already falls back
+    // to the borrowed list, so the loop could always EXECUTE an MCP tool.
+    // It simply never got the chance, because the tool was not offered.
+    const activeTools = getActiveTools().filter((t) =>
+      requested.includes(t.name),
+    );
+
+    // Which of those came over MCP, so the log can say who runs what.
+    // Read from the client rather than inferred from the tool's shape:
+    // a borrowed tool is deliberately indistinguishable from a local
+    // one everywhere else, which is the point of the adapter.
+    const mcpToolNames = new Set(getMcpTools().map((t) => t.name));
 
     // Convert to the API's format once, before the call. Logging the
     // result means the panel shows exactly what the model was told about
@@ -831,16 +859,34 @@ app.post("/api/chat", async (req, res) => {
     const effort = parseEffort(body.effort);
     const toolChoice = buildToolChoice(body.toolChoice, Boolean(apiTools));
 
-    if (TOOLS.length > 0) {
+    // Every tool that could be offered, which is what the denominator
+    // has to count: local, borrowed over MCP, and the server tools
+    // Anthropic runs. TOOLS alone was only the first of the three.
+    const offerable = getActiveTools().length + SERVER_TOOLS.length;
+
+    if (offerable > 0) {
       // How much of the request the tool definitions account for. This is
       // the honest answer to "how does Claude know what tools it has":
       // it is told, in full, every time, and that telling costs tokens.
       const definitionBytes = apiTools ? JSON.stringify(apiTools).length : 0;
 
+      // What is actually in the array, not what one of its three sources
+      // contributed.
+      //
+      // Both halves of this used to be wrong, and they disagreed with
+      // the API row two lines below in opposite directions. The
+      // numerator counted activeTools, which excluded the ticked server
+      // tools even though their definitions were in the same array; the
+      // denominator was TOOLS.length, which counted neither the server
+      // tools nor anything borrowed over MCP. The panel said "6 of 6"
+      // on a request that carried 7 definitions — and the one number a
+      // reader checks against the request body was the wrong one.
+      const sentCount = allDefinitions.length;
+
       log.info(
-        activeTools.length === 0
+        sentCount === 0
           ? "No tools sent — Claude will not know any exist"
-          : `${activeTools.length} of ${TOOLS.length} tool(s) sent ` +
+          : `${sentCount} of ${offerable} tool(s) sent ` +
             `(${definitionBytes} chars of definitions)`,
         {
           note:
@@ -848,7 +894,20 @@ app.post("/api/chat", async (req, res) => {
             "are included in every request, because the API keeps no state " +
             "between calls. This is what the model reads when deciding " +
             "whether a tool applies.",
+          // Broken out by who runs each one. A flat list of names could
+          // not show that roll_dice is executed over MCP while
+          // web_search is executed by Anthropic — which is the whole
+          // distinction this panel exists to teach.
           enabled: activeTools.map((t) => t.name),
+          enabled_by_runner: {
+            this_server: activeTools
+              .filter((t) => !mcpToolNames.has(t.name))
+              .map((t) => t.name),
+            mcp_server: activeTools
+              .filter((t) => mcpToolNames.has(t.name))
+              .map((t) => t.name),
+            anthropic: activeServerTools.map((t) => t.name),
+          },
           definition_characters: definitionBytes,
           definitions: apiTools,
         },
