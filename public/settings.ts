@@ -1105,11 +1105,17 @@ function renderToolList(): void {
     name.className = "tool-name";
     name.textContent = tool.name;
 
-    // Mark the tools Anthropic executes rather than this server.
-    if (tool.executedBy === "server") {
+    // Mark the tools this server does NOT execute itself.
+    //
+    // "server" is Anthropic's infrastructure; "mcp" is a connected
+    // MCP server, which may be another process or another machine.
+    // Unbadged means this app runs it. The model sees no difference
+    // between the three — one tools array, one tool_use block — so
+    // this badge is the only place the distinction is visible.
+    if (tool.executedBy === "server" || tool.executedBy === "mcp") {
       const badge = document.createElement("span");
-      badge.className = "tool-badge";
-      badge.textContent = "server";
+      badge.className = `tool-badge badge-${tool.executedBy}`;
+      badge.textContent = tool.executedBy;
       name.appendChild(badge);
     }
 

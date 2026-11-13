@@ -447,6 +447,12 @@ import {
   toolSummary,
 } from "./settings.js";
 import {
+  connectMcp,
+  disconnectMcp,
+  handleMcpTransportChange,
+  refreshMcpStatus,
+} from "./mcp-panel.js";
+import {
   appendError,
   appendToolCard,
   completeToolCard,
@@ -2014,6 +2020,30 @@ void initModels();
 void initPatterns();
 void initPrompts();
 void initTools();
+
+// --- The MCP panel -------------------------------------------------------
+//
+// Wired here rather than inside mcp-panel.ts, so that every listener
+// in the app is attached in one place. The panel exports behaviour;
+// this file decides what triggers it — the same split every other
+// control in the dialog follows.
+document
+  .getElementById("mcp-transport")
+  ?.addEventListener("change", handleMcpTransportChange);
+
+document
+  .getElementById("mcp-connect")
+  ?.addEventListener("click", () => void connectMcp());
+
+document
+  .getElementById("mcp-disconnect")
+  ?.addEventListener("click", () => void disconnectMcp());
+
+// Asks the server what it is connected to, if anything. Without this
+// a page reload shows "Not connected" over a live connection, because
+// the connection lives in the server and the browser has just
+// forgotten everything it knew.
+void refreshMcpStatus();
 void initToolChoices();
 void initCacheModes();
 void initThinking();

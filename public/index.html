@@ -436,6 +436,73 @@
       <ul id="tool-list">
         <li class="tool-empty">No tools registered yet.</li>
       </ul>
+
+      <!-- ===============================================================
+           MCP server connection.
+
+           Tools can also come from somewhere else entirely. Connect an
+           MCP server and its tools join the list above, badged "mcp" —
+           and from Claude's point of view nothing has changed: one
+           tools array goes out, one tool_use block comes back. Where
+           the function actually ran is this server's problem.
+
+           Deliberately at the BOTTOM of the Tools tab rather than in
+           its own tab. It is a source of tools, so it belongs with
+           them; a separate tab would suggest it is a separate feature.
+           =============================================================== -->
+      <section id="mcp-section">
+        <h3 class="mcp-heading">Connect an MCP server</h3>
+
+        <p class="panel-intro">
+          Its tools join the list above. Claude cannot tell them apart from
+          the local ones — only this app knows the difference.
+        </p>
+
+        <div class="mcp-controls">
+          <label class="mcp-field">
+            <span class="mcp-label">Transport</span>
+            <select id="mcp-transport">
+              <option value="http" selected>Streamable HTTP</option>
+              <option value="stdio">stdio</option>
+            </select>
+          </label>
+
+          <!-- Shown for HTTP. The default points at the MCP Lab on its
+               own port, which is the configuration the two projects are
+               built for. -->
+          <label class="mcp-field" id="mcp-url-field">
+            <span class="mcp-label">URL</span>
+            <input
+              type="text"
+              id="mcp-url"
+              value="http://localhost:3100/mcp"
+              spellcheck="false"
+              autocomplete="off"
+            >
+          </label>
+
+          <!-- Shown for stdio. This LAUNCHES A PROCESS on this machine,
+               which is why the app binds to localhost and says not to
+               expose it. -->
+          <label class="mcp-field" id="mcp-command-field" hidden>
+            <span class="mcp-label">Command</span>
+            <input
+              type="text"
+              id="mcp-command"
+              placeholder="npx tsx ../anthropic-mcp-lab/server/stdio.ts"
+              spellcheck="false"
+              autocomplete="off"
+            >
+          </label>
+
+          <div class="mcp-buttons">
+            <button type="button" id="mcp-connect">Connect</button>
+            <button type="button" id="mcp-disconnect" hidden>Disconnect</button>
+          </div>
+        </div>
+
+        <div class="setting-help" id="mcp-status">Not connected.</div>
+      </section>
     </div>
 
 

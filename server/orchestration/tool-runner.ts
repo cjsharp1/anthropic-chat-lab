@@ -16,7 +16,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import type { Logger } from "../logger.js";
-import { TOOLS_BY_NAME } from "../tools/registry.js";
+import { activeToolNames, findTool } from "../tools/registry.js";
 
 /**
  * Shortens text for a log label.
@@ -92,7 +92,11 @@ export async function runOneTool(
     };
   };
 
-  const tool = TOOLS_BY_NAME.get(request.name);
+  // findTool rather than a direct Map read: a tool may have arrived
+  // from a connected MCP server after startup, and the static Map
+  // cannot see those. Looking in the Map alone reported every remote
+  // tool as unknown.
+  const tool = findTool(request.name);
 
   // The model asked for something that does not exist. Rare, but it
   // happens — and it must still be answered.
@@ -100,7 +104,7 @@ export async function runOneTool(
     // warn, not error: an errored tool_result goes back and Claude recovers from it.
     log.warn(
       `Claude asked for an unknown tool: ${request.name}`,
-      { requested: request.name, available: [...TOOLS_BY_NAME.keys()] },
+      { requested: request.name, available: activeToolNames() },
       {
         // No direction. The lookup failed here, in our own code — no
         // tool ran, so nothing returned from one. The errored
@@ -136,10 +140,15 @@ export async function runOneTool(
   const parsed = tool.inputSchema.safeParse(request.input);
 
   if (!parsed.success) {
-    // Zod's issues are precise: path, expected type, received value.
+    // The issues are precise: which field, and what is wrong with it.
     // Formatting them for the model rather than dumping the raw error
     // is what makes the retry work.
-    const problems = parsed.error.issues
+    //
+    // `parsed.issues` rather than `parsed.error.issues`: the schema is
+    // now a SchemaLike, which reports a narrowed issue shape so that a
+    // Zod schema and an MCP server's JSON Schema can be validated
+    // through the same interface. See server/tools/types.ts.
+    const problems = parsed.issues
       .map((issue) => {
         const field = issue.path.join(".") || "(root)";
         return `${field}: ${issue.message}`;
@@ -155,7 +164,7 @@ export async function runOneTool(
       tool: request.name,
       tool_use_id: request.id,
       received: request.input,
-      problems: parsed.error.issues,
+      problems: parsed.issues,
       note:
         "Rejected before the tool ran. strict:true checks the shape of " +
         "the arguments, not their values — the numeric bounds are not " +

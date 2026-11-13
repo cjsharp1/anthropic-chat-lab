@@ -249,6 +249,23 @@ same question again, so the comparison holds everything else constant.
 
 ## The tools
 
+Seven of them ship with the app. An eighth source is optional: connect
+an **MCP server** in Settings → Tools and its tools join the list,
+badged `mcp`.
+
+That is the companion project,
+[anthropic-mcp-lab](https://github.com/cjsharp1/anthropic-mcp-lab).
+Start it with `npm run dev` in that repo (it listens on 3100), then
+connect to `http://localhost:3100/mcp` here. Its four tools appear
+beside the local ones and are ticked and sent exactly the same way.
+
+The point is what does *not* change. Claude receives one `tools`
+array and answers with one `tool_use` block; nothing in the request
+says where a tool runs. Open both activity logs side by side and the
+same exchange appears twice — once as a tool call here, once as a
+`tools/call` there.
+
+
 Six run on your machine, one runs on Anthropic's.
 
 | Tool | Where it runs | What it teaches |

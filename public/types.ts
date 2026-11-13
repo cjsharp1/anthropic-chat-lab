@@ -62,7 +62,16 @@ export interface RunOutcome {
 export interface ToolInfo {
   name: string;
   description: string;
-  executedBy: "client" | "server";
+  /**
+   * Where this tool runs.
+   *
+   * "mcp" is a third place, added when the app learned to connect to
+   * an MCP server: the tool lives on another process or machine and
+   * is reached over the Model Context Protocol. The model cannot tell
+   * the three apart — they arrive in one tools array — so the badge
+   * in the Tools tab is the only place the difference is visible.
+   */
+  executedBy: "client" | "server" | "mcp";
   examplePrompt: string;
   exampleWatch: string;
 }

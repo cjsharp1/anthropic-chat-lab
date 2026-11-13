@@ -3100,3 +3100,101 @@ h6.md-heading {
   border: 1px solid var(--accent);
   border-radius: var(--radius);
 }
+
+/* ---------------------------------------------------------------------------
+   MCP server connection — the panel at the bottom of the Tools tab.
+
+   Styled with the same variables as everything else in the dialog, so
+   it reads as part of it rather than as a feature bolted on.
+   --------------------------------------------------------------------------- */
+
+/* The badge distinguishing where a tool runs. .tool-badge already
+   supplies the shape; these two supply the colour.
+
+   Green for Anthropic's own infrastructure, amber for a connected MCP
+   server — the same two colours the activity log gives an API call
+   and a tool call, for the same two ideas. An unbadged tool runs
+   here. */
+.tool-badge.badge-server { background: var(--level-api); }
+.tool-badge.badge-mcp { background: var(--level-tool); }
+
+#mcp-section {
+  margin-top: 1.5rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--border);
+}
+
+.mcp-heading {
+  margin: 0 0 0.3rem;
+  font-family: var(--font-ui);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--fg);
+}
+
+.mcp-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem;
+  margin: 0.7rem 0 0.6rem;
+}
+
+.mcp-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+/* The URL field takes the slack, so a long endpoint stays readable
+   while the transport selector keeps its natural width. */
+#mcp-url-field, #mcp-command-field { flex: 1 1 18rem; }
+
+.mcp-label {
+  font-family: var(--font-ui);
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-dim);
+}
+
+.mcp-field select,
+.mcp-field input {
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  min-width: 0;
+}
+
+.mcp-buttons { display: flex; gap: 0.4rem; }
+
+.mcp-buttons button {
+  padding: 0.33rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.mcp-buttons button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.mcp-buttons button:disabled { opacity: 0.5; cursor: default; }
+
+/* A failed connection. Red, because the thing that was asked for did
+   not happen — the same test the log's levels use. */
+.mcp-error { color: var(--level-error); }
+
+/* A collision. Amber, not red: the connection succeeded and the run
+   proceeds exactly as designed. The note exists so the tool count is
+   not misleading. */
+.mcp-warn { margin-top: 0.3rem; color: var(--level-warn); }

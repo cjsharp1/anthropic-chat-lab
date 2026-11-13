@@ -29,7 +29,6 @@
  * One Zod schema generates both. It cannot drift from itself.
  */
 
-import { z } from "zod";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { AnyLabTool } from "./types.js";
 
@@ -40,10 +39,35 @@ import type { AnyLabTool } from "./types.js";
  * inspected in a test or a script without building the whole array.
  */
 export function toApiTool(tool: AnyLabTool): Anthropic.Tool {
-  // z.toJSONSchema does the real work. It produces correct types, carries
-  // every .describe() through as a "description", computes "required"
-  // from which fields are optional, and sets additionalProperties: false.
-  const schema = z.toJSONSchema(tool.inputSchema) as Record<string, unknown>;
+  // The schema asks itself for its JSON Schema form.
+  //
+  // For a local tool that is z.toJSONSchema under the hood — it
+  // produces correct types, carries every .describe() through as a
+  // "description", computes "required" from which fields are
+  // optional, and sets additionalProperties: false.
+  //
+  // For a tool from an MCP server there is nothing to convert: the
+  // server published JSON Schema and it is returned verbatim. See
+  // SchemaLike in ./types.ts for why that distinction is kept out of
+  // this file.
+  //
+  // Deep-copied before editing, and the depth matters.
+  //
+  // The steps below DELETE keys, and stripUnsupportedKeywords walks
+  // the whole tree doing it. A local tool is unaffected either way —
+  // z.toJSONSchema builds a fresh object per call — but an MCP tool
+  // returns the schema its server published, the same object every
+  // time. Editing that in place would strip the bounds permanently on
+  // the first request instead of per request, and the Tools tab would
+  // then show a schema missing the constraints the remote server
+  // actually advertises.
+  //
+  // A shallow spread is not enough: it protects the top level while
+  // leaving every nested `properties` object shared. structuredClone
+  // is the one-line correct answer and has been in Node since 17.
+  const schema = structuredClone(
+    tool.inputSchema.toJsonSchema(),
+  ) as Record<string, unknown>;
 
   // Drop the $schema declaration. The API does not need it, and it is
   // sent on every request for every tool — small, but it is pure waste,

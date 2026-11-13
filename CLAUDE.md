@@ -98,6 +98,41 @@ read `ANTHROPIC_API_KEY` from `.env` and cannot see a key set in
 Settings. `npm run check-env` inspects `.env` only — a passing app and
 a failing `check-env` is a normal, consistent state.
 
+## MCP tools
+
+The app can connect to an MCP server (Settings → Tools → Connect an
+MCP server), and that server's tools then appear in the Tools tab
+badged `mcp`, alongside the local ones.
+
+The design rule that makes this cheap: **the tool loop was not
+changed to accommodate them.** A remote tool is adapted into a
+`LabTool` and goes in the same list, so from the model's point of
+view — and from `tool-runner.ts`'s — there is no second kind of tool.
+That it did not need changing is the lesson; keep it that way.
+
+Three things are load-bearing:
+
+- `LabTool.inputSchema` is a **`SchemaLike`**, not a `z.ZodType`. It
+  names the only two operations this app performs on a schema
+  (`toJsonSchema`, `safeParse`). Tool files still write plain
+  `z.object({...})`; `defineTool` adapts it. An MCP tool carries the
+  server's JSON Schema **verbatim** — there is deliberately no
+  JSON-Schema-to-Zod converter, because a lossy one fails silently as
+  a tool that rejects valid arguments.
+- `toApiTool` **deep-clones** before editing. It deletes keys, and a
+  remote tool returns the same schema object every call, so editing
+  in place would strip the bounds permanently on the first request.
+- `findTool()`, not `TOOLS_BY_NAME`. The Map is fixed at import time
+  and cannot see a tool that arrived over a connection.
+
+`server/tools/registry.ts` and `server/mcp/client.ts` import each
+other. The cycle resolves only because **neither calls the other at
+module load**. A top-level call on either side breaks it.
+
+A remote tool whose name is already taken is **dropped**, the local
+one kept, and the clash reported in Settings and as a `warn` row. It
+cannot be an error: the tools are not ours and cannot be renamed.
+
 ## Model IDs
 
 Defined once in `server/anthropic.ts` as `MODEL` and `SMALL_MODEL`.

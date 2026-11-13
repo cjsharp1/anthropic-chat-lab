@@ -65,6 +65,13 @@ import { CACHE_MODES, DEFAULT_CACHE_MODE, parseCacheMode } from "./caching.js";
 import { extractFields } from "./extract.js";
 import { toApiTools } from "./tools/api-format.js";
 import { assertUniqueToolNames, TOOLS } from "./tools/registry.js";
+import {
+  connect as mcpConnect,
+  disconnect as mcpDisconnect,
+  getMcpTools,
+  getStatus as getMcpStatus,
+  type McpConnectRequest,
+} from "./mcp/client.js";
 import type { StreamEvent } from "./types.js";
 import { formatCost } from "./usage.js";
 
@@ -495,8 +502,81 @@ app.get("/api/tools", (_req, res) => {
         exampleWatch: tool.exampleWatch,
         note: tool.note,
       })),
+      // Tools borrowed from a connected MCP server. The list is empty
+      // when nothing is connected, and changes when Settings connects
+      // or disconnects — which is why this route reads it on every
+      // request rather than capturing it at startup.
+      ...getMcpTools().map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        executedBy: "mcp" as const,
+        examplePrompt: tool.examplePrompt,
+        exampleWatch: tool.exampleWatch,
+        note:
+          "This tool lives on a connected MCP server. Claude asks for " +
+          "it exactly as it asks for any other; this server forwards " +
+          "the call over the Model Context Protocol and sends the " +
+          "answer back in a tool_result.",
+      })),
     ],
   });
+});
+
+/**
+ * GET /api/mcp — the current MCP connection, if any.
+ *
+ * Shaped like /api/key-status, and for the same reason: the browser
+ * needs to draw a dialog that reflects server state it cannot hold
+ * itself. Nothing secret is returned — the target is a URL or a
+ * command the user typed, and both are already in their browser.
+ */
+app.get("/api/mcp", (_req, res) => {
+  res.json(getMcpStatus());
+});
+
+/**
+ * POST /api/mcp — connect to an MCP server.
+ *
+ * Returns the resulting status rather than throwing on failure. A
+ * server that is not running is an ordinary thing to happen in a lab,
+ * and the dialog needs the reason in order to show it.
+ */
+app.post("/api/mcp", async (req, res) => {
+  const body = req.body as Partial<McpConnectRequest>;
+
+  // Narrowed before use. This is a route that spawns a child process
+  // on one of its paths, so what arrives over the network decides
+  // rather more than usual.
+  const transport = body.transport === "stdio" ? "stdio" : "http";
+
+  const status = await mcpConnect({
+    transport,
+    ...(typeof body.url === "string" ? { url: body.url } : {}),
+    ...(typeof body.command === "string" ? { command: body.command } : {}),
+    ...(Array.isArray(body.args)
+      ? { args: body.args.map((arg) => String(arg)) }
+      : {}),
+  });
+
+  if (status.connected) {
+    console.log(
+      `  MCP connected: ${status.serverName} ${status.serverVersion} ` +
+        `(${status.toolNames.length} tools)`,
+    );
+  }
+
+  res.json(status);
+});
+
+/**
+ * DELETE /api/mcp — disconnect.
+ *
+ * Idempotent: disconnecting when nothing is connected succeeds and
+ * reports the same state it would have reported anyway.
+ */
+app.delete("/api/mcp", async (_req, res) => {
+  await mcpDisconnect();
+  res.json(getMcpStatus());
 });
 
 /**
