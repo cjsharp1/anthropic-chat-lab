@@ -378,12 +378,35 @@ function buildCodeBlock(code: string, language: string): HTMLElement {
  * contents are not scanned further, so a `*` inside backticks stays
  * literal.
  *
+ * Underscore emphasis only counts at a word boundary, which is what
+ * CommonMark specifies and what this originally got wrong. A sentence
+ * naming two API block types --
+ *
+ *   Claude requests it with a tool_use block, your code runs it, and
+ *   you return a tool_result block.
+ *
+ * -- has two underscores in it, and the old pattern paired the one in
+ * tool_use with the one in tool_result and italicised everything
+ * between them. Identifiers with underscores are everywhere in this
+ * app's subject matter (tool_use, tool_result, cache_control,
+ * input_schema), so this was not an edge case: it fired on ordinary
+ * explanatory prose about how tool use works.
+ *
+ * Asterisk emphasis needs no such guard, because `*` does not appear
+ * inside identifiers the way `_` does.
+ *
  * Everything here goes through textContent. The regex decides which
  * ELEMENT to create; it never decides what HTML to write.
  */
 function appendInline(parent: HTMLElement, text: string): void {
   // One pass, alternating between the next match and the text before it.
-  const pattern = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)|(__[^_]+__)|(_[^_\n]+_)/g;
+  // The (?<![A-Za-z0-9]) / (?![A-Za-z0-9]) guards on the underscore
+  // forms are what keep intra-word underscores literal: an opening `_`
+  // may not follow an alphanumeric, and a closing `_` may not precede
+  // one. So tool_use stays tool_use, while _emphasis_ between spaces
+  // still works.
+  const pattern =
+    /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\n]+\*)|((?<![A-Za-z0-9])__[^_\n]+__(?![A-Za-z0-9]))|((?<![A-Za-z0-9])_[^_\n]+_(?![A-Za-z0-9]))/g;
 
   let lastIndex = 0;
   let match: RegExpExecArray | null;
