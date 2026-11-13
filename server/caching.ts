@@ -51,9 +51,22 @@
  * needs 2048. A short system prompt with no tools will therefore
  * never cache however many times it is sent, which is the first thing
  * to check when caching "does not work".
+ *
+ * ---------------------------------------------------------------------------
+ * The two log helpers at the foot of this file
+ * ---------------------------------------------------------------------------
+ *
+ * `warnIfBelowCacheMinimum` and `describeCacheOutcome` build the two
+ * caching rows the activity panel shows. They are here rather than in
+ * each pattern because they describe caching, not any one pattern,
+ * and they were previously written out identically in six files.
+ * `tool-loop.ts` keeps its own wording for both, and says why at each
+ * spot.
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
+import type { Logger } from "./logger.js";
+import type { UsageSummary } from "./usage.js";
 
 /**
  * How much of the request to mark cacheable. Declared here because
@@ -306,4 +319,69 @@ export function parseCacheMode(input: unknown): CacheMode {
   return input === "off" || input === "prefix" || input === "full"
     ? input
     : DEFAULT_CACHE_MODE;
+}
+
+// ---------------------------------------------------------------------------
+// Log rows about caching
+// ---------------------------------------------------------------------------
+//
+// Both of these were written out in full in each of six pattern files,
+// identically. They are about caching rather than about any pattern, so
+// they live here with the rest of the caching logic and each pattern
+// calls one line.
+//
+// tool-loop.ts deliberately keeps its own wording for both. Its warning
+// fires only on the first iteration, and its explanation is the long
+// form, because the tool loop is where a reader first meets caching
+// across several requests.
+
+/**
+ * Warns when the cacheable prefix is too short to be worth caching.
+ *
+ * Feeds the `warn` row that appears before the first request of a
+ * pattern. The failure this describes is silent — the API returns no
+ * error for a prefix below the minimum, it simply does not cache —
+ * which is exactly why the app says so out loud.
+ */
+export function warnIfBelowCacheMinimum(plan: CachePlan, log: Logger): void {
+  if (!plan.meetsMinimum) {
+    log.warn(
+      `Cacheable prefix is about ${plan.approximateTokens} tokens, ` +
+        `below the ${plan.minimum}-token minimum`,
+      {
+        plan,
+        note:
+          "Short prefixes are silently not cached — no error, " +
+          "and cache_creation_input_tokens simply stays zero. " +
+          "Enabling tools adds about 1,100 tokens of definitions, " +
+          "which is what usually carries a request over the " +
+          "line.",
+      },
+      {
+        actor: "app",
+        because: "the prefix is too short for the model to cache",
+      },
+    );
+  }
+}
+
+/**
+ * Says in words which of the three caching states a response was in.
+ *
+ * Feeds `caching.what_happened` in the response row. The raw
+ * cache_read and cache_write numbers are the ones in the
+ * documentation, but they do not say which state the request was in,
+ * and the three look similar until you know what to compare.
+ */
+export function describeCacheOutcome(usage: UsageSummary): string {
+  return usage.cacheRead > 0
+    ? `${usage.cacheRead} tokens were served from cache at ` +
+        "about a twentieth of the normal input price."
+    : usage.cacheWrite > 0
+      ? `${usage.cacheWrite} tokens were WRITTEN to the cache, ` +
+          "which costs 25% more than fresh input. The next " +
+          "request with this prefix is where it pays off."
+      : "No caching. Either the prefix is below the minimum " +
+        "length, something in it changed, or the entry " +
+        "expired after about five minutes idle.";
 }

@@ -49,7 +49,9 @@
 import { client, MAX_TOKENS } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
+  describeCacheOutcome,
   describeCachePlan,
+  warnIfBelowCacheMinimum,
   withCachedHistory,
   withCachedSystem,
   withCachedTools,
@@ -308,25 +310,7 @@ export const chaining: Pattern = {
       producing,
     );
 
-    if (!cachePlan.meetsMinimum) {
-      log.warn(
-        `Cacheable prefix is about ${cachePlan.approximateTokens} tokens, ` +
-          `below the ${cachePlan.minimum}-token minimum`,
-        {
-          plan: cachePlan,
-          note:
-            "Short prefixes are silently not cached — no error, " +
-            "and cache_creation_input_tokens simply stays zero. " +
-            "Enabling tools adds about 1,100 tokens of definitions, " +
-            "which is what usually carries a request over the " +
-            "line.",
-        },
-        {
-          actor: "app",
-          because: "the prefix is too short for the model to cache",
-        },
-      );
-    }
+    warnIfBelowCacheMinimum(cachePlan, log);
 
     const writeRequest = {
       model: producing,
@@ -423,17 +407,7 @@ export const chaining: Pattern = {
           read_from_cache: writeUsage.cacheRead,
           written_to_cache: writeUsage.cacheWrite,
           fresh: writeUsage.input,
-          what_happened:
-            writeUsage.cacheRead > 0
-              ? `${writeUsage.cacheRead} tokens were served from cache at ` +
-                "about a twentieth of the normal input price."
-              : writeUsage.cacheWrite > 0
-                ? `${writeUsage.cacheWrite} tokens were WRITTEN to the cache, ` +
-                  "which costs 25% more than fresh input. The next " +
-                  "request with this prefix is where it pays off."
-                : "No caching. Either the prefix is below the minimum " +
-                  "length, something in it changed, or the entry " +
-                  "expired after about five minutes idle.",
+          what_happened: describeCacheOutcome(writeUsage),
         },
         response: {
           id: writeResponse.id,

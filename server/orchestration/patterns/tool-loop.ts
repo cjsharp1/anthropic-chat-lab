@@ -219,6 +219,11 @@ export const toolLoop: Pattern = {
       // the whole exercise would be wasted.
       const cachePlan = describeCachePlan(tools, system, messages, producing);
 
+      // Written out here rather than calling warnIfBelowCacheMinimum,
+      // which the six single-request patterns share. This one fires
+      // only on the first iteration — the prefix does not change
+      // between them, so warning every time would be noise — and that
+      // condition is the difference worth keeping.
       if (iteration === 1 && !cachePlan.meetsMinimum) {
         log.warn(
           `Cacheable prefix is about ${cachePlan.approximateTokens} tokens, ` +
@@ -396,6 +401,12 @@ export const toolLoop: Pattern = {
             read_from_cache: usage.cacheRead,
             written_to_cache: usage.cacheWrite,
             fresh: usage.input,
+            // The long form, kept here on purpose rather than calling
+            // describeCacheOutcome. This is where a reader first sees
+            // caching across several requests in one turn, so each
+            // state says what it means for the NEXT iteration — which
+            // the six single-request patterns have no next iteration
+            // to talk about.
             what_happened:
               usage.cacheRead > 0
                 ? `${usage.cacheRead} tokens were served from cache at ` +

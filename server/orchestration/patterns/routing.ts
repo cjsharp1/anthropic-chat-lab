@@ -53,7 +53,9 @@
 import { client, MAX_TOKENS } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
+  describeCacheOutcome,
   describeCachePlan,
+  warnIfBelowCacheMinimum,
   withCachedHistory,
   withCachedSystem,
   withCachedTools,
@@ -387,25 +389,7 @@ export const routing: Pattern = {
       producing,
     );
 
-    if (!cachePlan.meetsMinimum) {
-      log.warn(
-        `Cacheable prefix is about ${cachePlan.approximateTokens} tokens, ` +
-          `below the ${cachePlan.minimum}-token minimum`,
-        {
-          plan: cachePlan,
-          note:
-            "Short prefixes are silently not cached — no error, " +
-            "and cache_creation_input_tokens simply stays zero. " +
-            "Enabling tools adds about 1,100 tokens of definitions, " +
-            "which is what usually carries a request over the " +
-            "line.",
-        },
-        {
-          actor: "app",
-          because: "the prefix is too short for the model to cache",
-        },
-      );
-    }
+    warnIfBelowCacheMinimum(cachePlan, log);
 
     const answerRequest = {
       model: producing,
@@ -487,17 +471,7 @@ export const routing: Pattern = {
           read_from_cache: answerUsage.cacheRead,
           written_to_cache: answerUsage.cacheWrite,
           fresh: answerUsage.input,
-          what_happened:
-            answerUsage.cacheRead > 0
-              ? `${answerUsage.cacheRead} tokens were served from cache at ` +
-                "about a twentieth of the normal input price."
-              : answerUsage.cacheWrite > 0
-                ? `${answerUsage.cacheWrite} tokens were WRITTEN to the cache, ` +
-                  "which costs 25% more than fresh input. The next " +
-                  "request with this prefix is where it pays off."
-                : "No caching. Either the prefix is below the minimum " +
-                  "length, something in it changed, or the entry " +
-                  "expired after about five minutes idle.",
+          what_happened: describeCacheOutcome(answerUsage),
         },
         response: {
           model: answerResponse.model,
