@@ -260,7 +260,7 @@ export const toolLoop: Pattern = {
         // Thinking is always on; this decides whether its
         // summary comes back readable. See server/thinking.ts.
         ...thinkingConfig(thinkingDisplay),
-      ...withEffort(effort),
+        ...withEffort(effort),
       };
 
       log.api(
@@ -306,14 +306,13 @@ export const toolLoop: Pattern = {
 
     // The reasoning summary, if one came back. Empty under the default
     // display setting: the blocks arrive either way, but with no text.
-    {
-      const summary = response.content
-        .filter((block) => block.type === "thinking")
-        .map((block) => block.thinking)
-        .join("")
-        .trim();
-      if (summary) emitThinking(summary);
-    }
+    const thinkingSummary = response.content
+      .filter((block) => block.type === "thinking")
+      .map((block) => block.thinking)
+      .join("")
+      .trim();
+    if (thinkingSummary) emitThinking(thinkingSummary);
+
       const elapsed = Date.now() - started;
 
       stopReason = response.stop_reason;
@@ -616,32 +615,32 @@ export const toolLoop: Pattern = {
     }
 
     if (iteration > 1) {
-    const cache = cacheTally.summary();
+      const cache = cacheTally.summary();
 
-    if (cache.fromCache > 0) {
-      log.info(
-        `Caching saved ${formatCost(cache.saved)} this turn · ` +
-          `${Math.round(cache.hitRate * 100)}% of input from cache`,
-        {
-          input_tokens_total: cache.totalInput,
-          from_cache: cache.fromCache,
-          hit_rate: `${Math.round(cache.hitRate * 100)}%`,
-          input_cost_billed: formatCost(cache.inputCost),
-          input_cost_without_caching: formatCost(cache.withoutCaching),
-          saved: formatCost(cache.saved),
-          saved_percent: `${Math.round(cache.savedPercent * 100)}%`,
-          note:
-            "Across every request this turn made. The per-request hit " +
-            "rates above vary because each is a different mix of cached " +
-            "prefix and fresh question; this is the figure that says " +
-            "whether caching is paying for itself.",
-        },
-        {
-          actor: "app",
-          because: "the turn is complete and the cache figures can be totalled",
-        },
-      );
-    }
+      if (cache.fromCache > 0) {
+        log.info(
+          `Caching saved ${formatCost(cache.saved)} this turn · ` +
+            `${Math.round(cache.hitRate * 100)}% of input from cache`,
+          {
+            input_tokens_total: cache.totalInput,
+            from_cache: cache.fromCache,
+            hit_rate: `${Math.round(cache.hitRate * 100)}%`,
+            input_cost_billed: formatCost(cache.inputCost),
+            input_cost_without_caching: formatCost(cache.withoutCaching),
+            saved: formatCost(cache.saved),
+            saved_percent: `${Math.round(cache.savedPercent * 100)}%`,
+            note:
+              "Across every request this turn made. The per-request hit " +
+              "rates above vary because each is a different mix of cached " +
+              "prefix and fresh question; this is the figure that says " +
+              "whether caching is paying for itself.",
+          },
+          {
+            actor: "app",
+            because: "the turn is complete and the cache figures can be totalled",
+          },
+        );
+      }
 
       log.info(
         `Finished after ${Math.min(iteration, MAX_TOOL_ITERATIONS)} iteration(s) · ` +

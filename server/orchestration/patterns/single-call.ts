@@ -151,7 +151,7 @@ export const singleCall: Pattern = {
       );
     }
 
-const request = {
+    const request = {
       model: producing,
       max_tokens: MAX_TOKENS,
       ...(system ? { system: withCachedSystem(system, cacheMode) } : {}),
@@ -193,14 +193,13 @@ const request = {
 
     // The reasoning summary, if one came back. Empty under the default
     // display setting: the blocks arrive either way, but with no text.
-    {
-      const summary = response.content
-        .filter((block) => block.type === "thinking")
-        .map((block) => block.thinking)
-        .join("")
-        .trim();
-      if (summary) emitThinking(summary);
-    }
+    const thinkingSummary = response.content
+      .filter((block) => block.type === "thinking")
+      .map((block) => block.thinking)
+      .join("")
+      .trim();
+    if (thinkingSummary) emitThinking(thinkingSummary);
+
     const elapsed = Date.now() - started;
 
     // response.content is an array of blocks, not a string. Collect the
@@ -237,27 +236,27 @@ const request = {
           cache_write: usage.cacheWrite,
           total_input: usage.totalInput,
         },
-          // What caching did, in words. The raw numbers above are
-          // the ones in the documentation, but they do not say which
-          // of three states this request was in, and the three look
-          // similar until you know what to compare.
-          caching: {
-            hit_rate: `${Math.round(usage.cacheHitRate * 100)}%`,
-            read_from_cache: usage.cacheRead,
-            written_to_cache: usage.cacheWrite,
-            fresh: usage.input,
-            what_happened:
-              usage.cacheRead > 0
-                ? `${usage.cacheRead} tokens were served from cache at ` +
-                  "about a twentieth of the normal input price."
-                : usage.cacheWrite > 0
-                  ? `${usage.cacheWrite} tokens were WRITTEN to the cache, ` +
-                    "which costs 25% more than fresh input. The next " +
-                    "request with this prefix is where it pays off."
-                  : "No caching. Either the prefix is below the minimum " +
-                    "length, something in it changed, or the entry " +
-                    "expired after about five minutes idle.",
-          },
+        // What caching did, in words. The raw numbers above are
+        // the ones in the documentation, but they do not say which
+        // of three states this request was in, and the three look
+        // similar until you know what to compare.
+        caching: {
+          hit_rate: `${Math.round(usage.cacheHitRate * 100)}%`,
+          read_from_cache: usage.cacheRead,
+          written_to_cache: usage.cacheWrite,
+          fresh: usage.input,
+          what_happened:
+            usage.cacheRead > 0
+              ? `${usage.cacheRead} tokens were served from cache at ` +
+                "about a twentieth of the normal input price."
+              : usage.cacheWrite > 0
+                ? `${usage.cacheWrite} tokens were WRITTEN to the cache, ` +
+                  "which costs 25% more than fresh input. The next " +
+                  "request with this prefix is where it pays off."
+                : "No caching. Either the prefix is below the minimum " +
+                  "length, something in it changed, or the entry " +
+                  "expired after about five minutes idle.",
+        },
       },
       {
         direction: "in",

@@ -407,7 +407,7 @@ export const routing: Pattern = {
       );
     }
 
-const answerRequest = {
+    const answerRequest = {
       model: producing,
       max_tokens: MAX_TOKENS,
       system: withCachedSystem(answerSystem),
@@ -450,14 +450,13 @@ const answerRequest = {
     // The reasoning summary, if one came back. Empty under the
     // default display setting: the blocks arrive either way,
     // but with no text in them.
-    {
-      const summary = answerResponse.content
-        .filter((block) => block.type === "thinking")
-        .map((block) => block.thinking)
-        .join("")
-        .trim();
-      if (summary) emitThinking(summary);
-    }
+    const thinkingSummary = answerResponse.content
+      .filter((block) => block.type === "thinking")
+      .map((block) => block.thinking)
+      .join("")
+      .trim();
+    if (thinkingSummary) emitThinking(thinkingSummary);
+
     const answerElapsed = Date.now() - answerStarted;
 
     const text = answerResponse.content

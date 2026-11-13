@@ -170,7 +170,13 @@ export const parallel: Pattern = {
     const producing = models.producing;
 
     // Say so rather than discarding them silently — see no-tools.ts.
-    const serverTools = warnToolsIgnored(tools, "Parallelisation", "Each branch is a single call, and the merge is a single call. None of them can handle a tool_use response.", log);
+    const serverTools = warnToolsIgnored(
+      tools,
+      "Parallelisation",
+      "Each branch is a single call, and the merge is a single call. " +
+        "None of them can handle a tool_use response.",
+      log,
+    );
 
     let totalCost = 0;
 
@@ -215,7 +221,7 @@ export const parallel: Pattern = {
           // Thinking is always on; this decides whether its
           // summary comes back readable. See server/thinking.ts.
           ...thinkingConfig(thinkingDisplay),
-      ...withEffort(effort),
+          ...withEffort(effort),
         };
 
         log.api(
@@ -417,7 +423,7 @@ export const parallel: Pattern = {
       );
     }
 
-const mergeRequest = {
+    const mergeRequest = {
       model: producing,
       max_tokens: MAX_TOKENS,
       system: withCachedSystem(synthesisSystem),
@@ -456,14 +462,13 @@ const mergeRequest = {
     // The reasoning summary, if one came back. Empty under the
     // default display setting: the blocks arrive either way,
     // but with no text in them.
-    {
-      const summary = mergeResponse.content
-        .filter((block) => block.type === "thinking")
-        .map((block) => block.thinking)
-        .join("")
-        .trim();
-      if (summary) emitThinking(summary);
-    }
+    const thinkingSummary = mergeResponse.content
+      .filter((block) => block.type === "thinking")
+      .map((block) => block.thinking)
+      .join("")
+      .trim();
+    if (thinkingSummary) emitThinking(thinkingSummary);
+
     const mergeElapsed = Date.now() - mergeStarted;
 
     const text = mergeResponse.content

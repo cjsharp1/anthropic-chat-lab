@@ -233,7 +233,14 @@ export const orchestrator: Pattern = {
     const deciding = models.deciding;
 
     // Say so rather than discarding them silently — see no-tools.ts.
-    const serverTools = warnToolsIgnored(tools, "Orchestrator + workers", "Workers make one call each and cannot loop. A production version would give each worker its own tool loop, which is a sensible thing to build and a confusing thing to learn from.", log);
+    const serverTools = warnToolsIgnored(
+      tools,
+      "Orchestrator + workers",
+      "Workers make one call each and cannot loop. A production " +
+        "version would give each worker its own tool loop, which is a " +
+        "sensible thing to build and a confusing thing to learn from.",
+      log,
+    );
 
     let totalCost = 0;
 
@@ -412,7 +419,7 @@ export const orchestrator: Pattern = {
           // Thinking is always on; this decides whether its
           // summary comes back readable. See server/thinking.ts.
           ...thinkingConfig(thinkingDisplay),
-      ...withEffort(effort),
+          ...withEffort(effort),
         };
 
         log.api(
@@ -606,7 +613,7 @@ export const orchestrator: Pattern = {
       );
     }
 
-const synthRequest = {
+    const synthRequest = {
       model: producing,
       max_tokens: MAX_TOKENS,
       system: withCachedSystem(synthesisSystem),
@@ -644,14 +651,13 @@ const synthRequest = {
     // The reasoning summary, if one came back. Empty under the
     // default display setting: the blocks arrive either way,
     // but with no text in them.
-    {
-      const summary = synthResponse.content
-        .filter((block) => block.type === "thinking")
-        .map((block) => block.thinking)
-        .join("")
-        .trim();
-      if (summary) emitThinking(summary);
-    }
+    const thinkingSummary = synthResponse.content
+      .filter((block) => block.type === "thinking")
+      .map((block) => block.thinking)
+      .join("")
+      .trim();
+    if (thinkingSummary) emitThinking(thinkingSummary);
+
     const synthElapsed = Date.now() - synthStarted;
 
     const text = synthResponse.content

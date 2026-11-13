@@ -189,7 +189,13 @@ export const evaluator: Pattern = {
     const judging = models.judging;
 
     // Say so rather than discarding them silently — see no-tools.ts.
-    const serverTools = warnToolsIgnored(tools, "Evaluator + optimiser", "The generator and the evaluator both make single calls. The loop here is over drafts, not over tool results.", log);
+    const serverTools = warnToolsIgnored(
+      tools,
+      "Evaluator + optimiser",
+      "The generator and the evaluator both make single calls. The " +
+        "loop here is over drafts, not over tool results.",
+      log,
+    );
 
     let totalCost = 0;
     let requests = 0;
@@ -244,41 +250,41 @@ export const evaluator: Pattern = {
         .filter(Boolean)
         .join("\n\n");
 
-          // Prompt caching. The request renders as tools → system →
-    // messages, so the stable front of it is worth marking: a
-    // later request sharing that prefix reads it back at about
-    // a twentieth of the input price.
-    // serverTools, not tools: this pattern sends only the server ones,
-    // and an estimate counting tools that are never sent would warn
-    // about the wrong thing — or fail to warn at all.
-    const cachePlan = describeCachePlan(
-      serverTools,
-      system,
-      messages,
-      producing,
-    );
-
-    if (!cachePlan.meetsMinimum) {
-      log.warn(
-        `Cacheable prefix is about ${cachePlan.approximateTokens} tokens, ` +
-          `below the ${cachePlan.minimum}-token minimum`,
-        {
-          plan: cachePlan,
-          note:
-            "Short prefixes are silently not cached — no error, " +
-            "and cache_creation_input_tokens simply stays zero. " +
-            "Enabling tools adds about 1,100 tokens of definitions, " +
-            "which is what usually carries a request over the " +
-            "line.",
-        },
-        {
-          actor: "app",
-          because: "the prefix is too short for the model to cache",
-        },
+      // Prompt caching. The request renders as tools → system →
+      // messages, so the stable front of it is worth marking: a
+      // later request sharing that prefix reads it back at about
+      // a twentieth of the input price.
+      // serverTools, not tools: this pattern sends only the server ones,
+      // and an estimate counting tools that are never sent would warn
+      // about the wrong thing — or fail to warn at all.
+      const cachePlan = describeCachePlan(
+        serverTools,
+        system,
+        messages,
+        producing,
       );
-    }
 
-const draftRequest = {
+      if (!cachePlan.meetsMinimum) {
+        log.warn(
+          `Cacheable prefix is about ${cachePlan.approximateTokens} tokens, ` +
+            `below the ${cachePlan.minimum}-token minimum`,
+          {
+            plan: cachePlan,
+            note:
+              "Short prefixes are silently not cached — no error, " +
+              "and cache_creation_input_tokens simply stays zero. " +
+              "Enabling tools adds about 1,100 tokens of definitions, " +
+              "which is what usually carries a request over the " +
+              "line.",
+          },
+          {
+            actor: "app",
+            because: "the prefix is too short for the model to cache",
+          },
+        );
+      }
+
+      const draftRequest = {
         model: producing,
         max_tokens: DRAFT_MAX_TOKENS,
         system: withCachedSystem(generatorSystem),
@@ -291,7 +297,7 @@ const draftRequest = {
         // Thinking is always on; this decides whether its
         // summary comes back readable. See server/thinking.ts.
         ...thinkingConfig(thinkingDisplay),
-      ...withEffort(effort),
+        ...withEffort(effort),
       };
 
       log.api(
@@ -348,27 +354,27 @@ const draftRequest = {
           round,
           elapsed_ms: draftElapsed,
           estimated_cost: formatCost(draftUsage.cost),
-        // What caching did, in words. The raw cache_read and
-        // cache_write numbers are the ones in the documentation, but
-        // they do not say which of three states this request was in,
-        // and the three look similar until you know what to compare.
-        caching: {
-          hit_rate: `${Math.round(draftUsage.cacheHitRate * 100)}%`,
-          read_from_cache: draftUsage.cacheRead,
-          written_to_cache: draftUsage.cacheWrite,
-          fresh: draftUsage.input,
-          what_happened:
-            draftUsage.cacheRead > 0
-              ? `${draftUsage.cacheRead} tokens were served from cache at ` +
-                "about a twentieth of the normal input price."
-              : draftUsage.cacheWrite > 0
-                ? `${draftUsage.cacheWrite} tokens were WRITTEN to the cache, ` +
-                  "which costs 25% more than fresh input. The next " +
-                  "request with this prefix is where it pays off."
-                : "No caching. Either the prefix is below the minimum " +
-                  "length, something in it changed, or the entry " +
-                  "expired after about five minutes idle.",
-        },
+          // What caching did, in words. The raw cache_read and
+          // cache_write numbers are the ones in the documentation, but
+          // they do not say which of three states this request was in,
+          // and the three look similar until you know what to compare.
+          caching: {
+            hit_rate: `${Math.round(draftUsage.cacheHitRate * 100)}%`,
+            read_from_cache: draftUsage.cacheRead,
+            written_to_cache: draftUsage.cacheWrite,
+            fresh: draftUsage.input,
+            what_happened:
+              draftUsage.cacheRead > 0
+                ? `${draftUsage.cacheRead} tokens were served from cache at ` +
+                  "about a twentieth of the normal input price."
+                : draftUsage.cacheWrite > 0
+                  ? `${draftUsage.cacheWrite} tokens were WRITTEN to the cache, ` +
+                    "which costs 25% more than fresh input. The next " +
+                    "request with this prefix is where it pays off."
+                  : "No caching. Either the prefix is below the minimum " +
+                    "length, something in it changed, or the entry " +
+                    "expired after about five minutes idle.",
+          },
           // The draft itself. Comparing round one with round three is
           // the most direct way to see whether the loop improved
           // anything or merely reworded it.

@@ -141,7 +141,13 @@ export const chaining: Pattern = {
     const deciding = models.deciding;
 
     // Say so rather than discarding them silently — see no-tools.ts.
-    const serverTools = warnToolsIgnored(tools, "Prompt chaining", "Both calls are single calls. Handling a tool_use response needs the loop that the Tool loop pattern provides.", log);
+    const serverTools = warnToolsIgnored(
+      tools,
+      "Prompt chaining",
+      "Both calls are single calls. Handling a tool_use response " +
+        "needs the loop that the Tool loop pattern provides.",
+      log,
+    );
 
     let totalCost = 0;
 
@@ -322,7 +328,7 @@ export const chaining: Pattern = {
       );
     }
 
-const writeRequest = {
+    const writeRequest = {
       model: producing,
       max_tokens: MAX_TOKENS,
       system: withCachedSystem(writerSystem),
@@ -383,14 +389,13 @@ const writeRequest = {
     // The reasoning summary, if one came back. Empty under the
     // default display setting: the blocks arrive either way,
     // but with no text in them.
-    {
-      const summary = writeResponse.content
-        .filter((block) => block.type === "thinking")
-        .map((block) => block.thinking)
-        .join("")
-        .trim();
-      if (summary) emitThinking(summary);
-    }
+    const thinkingSummary = writeResponse.content
+      .filter((block) => block.type === "thinking")
+      .map((block) => block.thinking)
+      .join("")
+      .trim();
+    if (thinkingSummary) emitThinking(thinkingSummary);
+
     const writeElapsed = Date.now() - writeStarted;
 
     const text = writeResponse.content

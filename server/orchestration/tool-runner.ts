@@ -160,14 +160,14 @@ export async function runOneTool(
     log.warn(
       `${request.name} rejected: ${truncate(problems, 46)}`,
       {
-      iteration,
-      tool: request.name,
-      tool_use_id: request.id,
-      received: request.input,
-      problems: parsed.issues,
-      note:
-        "Rejected before the tool ran. strict:true checks the shape of " +
-        "the arguments, not their values — the numeric bounds are not " +
+        iteration,
+        tool: request.name,
+        tool_use_id: request.id,
+        received: request.input,
+        problems: parsed.issues,
+        note:
+          "Rejected before the tool ran. strict:true checks the shape of " +
+          "the arguments, not their values — the numeric bounds are not " +
           "even in the schema the API sees, because strict mode rejects " +
           "them. This parse is what enforces them.",
       },
@@ -201,14 +201,14 @@ export async function runOneTool(
     log.tool(
       `[client] ${request.name} → ${truncate(result, 50)}`,
       {
-      iteration,
-      tool: request.name,
-      tool_use_id: request.id,
-      input: request.input,
-      // The full result, however long. The label is truncated; this is
-      // not — a 3KB search result is exactly the thing worth expanding
-      // a row to read.
-      result,
+        iteration,
+        tool: request.name,
+        tool_use_id: request.id,
+        input: request.input,
+        // The full result, however long. The label is truncated; this is
+        // not — a 3KB search result is exactly the thing worth expanding
+        // a row to read.
+        result,
         result_characters: result.length,
         elapsed_ms: elapsed,
       },
@@ -227,12 +227,12 @@ export async function runOneTool(
     log.error(
       `${request.name} failed: ${truncate(message, 50)}`,
       {
-      iteration,
-      tool: request.name,
-      tool_use_id: request.id,
-      input: request.input,
-      error: message,
-      elapsed_ms: Date.now() - started,
+        iteration,
+        tool: request.name,
+        tool_use_id: request.id,
+        input: request.input,
+        error: message,
+        elapsed_ms: Date.now() - started,
         note:
           "Returned to Claude as a tool_result with is_error: true, so it " +
           "can respond to the failure rather than the request dying.",
