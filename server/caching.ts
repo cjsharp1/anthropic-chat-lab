@@ -78,17 +78,6 @@ export type CacheMode = "off" | "prefix" | "full";
 /** The marker that makes a block a cache breakpoint. */
 const EPHEMERAL = { type: "ephemeral" as const };
 
-/**
- * Roughly how many tokens a string is.
- *
- * Four characters per token is the usual rule of thumb for English.
- * Only used to warn when a prefix looks too short to cache, so being
- * approximate is fine — the real count comes back in the response.
- */
-export function roughTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
-
 /** Minimum cacheable prefix, by model family. */
 export function cacheMinimum(model: string): number {
   return model.includes("haiku") ? 2048 : 1024;
@@ -228,9 +217,12 @@ export function describeCachePlan(
 
   // Only the prefix up to the first breakpoint counts toward the
   // minimum, and the tools come first.
-  const approximateTokens = roughTokens(
-    "x".repeat(toolBytes + systemBytes),
-  );
+  //
+  // Four characters per token is the usual rule of thumb for English.
+  // It is only used to warn when a prefix looks too short to cache, so
+  // being approximate is fine — the real count comes back in the
+  // response, in usage.cache_creation_input_tokens.
+  const approximateTokens = Math.ceil((toolBytes + systemBytes) / 4);
 
   const minimum = cacheMinimum(model);
 
