@@ -382,14 +382,30 @@ server/
   effort.ts             output_config.effort
   extract.ts            Structured outputs with Zod
   prompts.ts            The five system prompts
+  tool-choice.ts        The tool_choice options, including the two
+                        current models reject
+  mcp/
+    client.ts           Connects to an MCP server and adapts its
+                        tools into LabTools
+    schema.ts           Checks MCP tool arguments against the
+                        server's own JSON Schema
   orchestration/
     types.ts            Pattern and PatternContext
     registry.ts         The seven patterns, listed
     patterns/           One file per pattern
+    tool-runner.ts      Runs one tool_use block and builds its
+                        tool_result
+    no-tools.ts         What a pattern without a loop does with
+                        the tools it was given
   tools/
     types.ts            LabTool, defineTool
     registry.ts         The tool list
     definitions/        One file per tool
+    api-format.ts       Turns a LabTool into the API's tool
+                        definition
+    server-tools.ts     web_search, the tool Anthropic runs
+    server-tool-log.ts  Log rows for server-tool blocks in a
+                        response
 shared/
   types.ts              The wire contract: LogEvent, StreamEvent.
                         Imported by both halves so they cannot
@@ -401,6 +417,7 @@ public/
   log.ts                The activity panel: rows, groups, filters,
                         the running cost
   settings.ts           The six controls, and tool selection
+  mcp-panel.ts          The "Connect an MCP server" form
   transcript.ts         Tool cards between messages
   state.ts              The handful of values more than one module
                         writes — a plain object, because ES modules
