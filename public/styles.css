@@ -26,6 +26,11 @@
   --fg: #1d1b19;
   --fg-dim: #6a6660;
 
+  /* A heavier hairline, for the edge of something you can operate.
+     --border is right for dividing rules but disappears when it has
+     to outline a control sitting on --surface. */
+  --border-strong: #c8c1b6;
+
   /* The accent — used for interactive elements and the user's own turns */
   --accent: #9a4f20;
   --accent-fg: #ffffff;
@@ -58,6 +63,8 @@
 
     --fg: #eae7e1;
     --fg-dim: #968f85;
+
+    --border-strong: #4a453c;
 
     --accent: #d98a55;
     --accent-fg: #1a1613;
@@ -1522,23 +1529,34 @@ h6.md-heading {
 
 .setting > label {
   display: block;
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.4rem;
   font-family: var(--font-ui);
-  font-size: 0.78rem;
-  font-weight: 600;
+  font-size: 0.8rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
   color: var(--fg);
 }
 
-/* Full width here, unlike in the header where space was tight. */
+/* Full width here, unlike in the header where space was tight.
+
+   Sunk fill and a stronger edge. These dropdowns sat on --surface
+   with a 1px --border, which is the same colour as the panel behind
+   them — so the only thing marking a control was the chevron, and in
+   a setting carrying a label, a help line and a note, the one part
+   you can actually operate was the least visible thing in the block.
+
+   The fill is what does the work: a shape with a different background
+   reads as interactive before any border is noticed. */
 .setting > select {
   appearance: none;
   width: 100%;
   font: inherit;
   font-size: 0.82rem;
-  padding: 0.35rem 1.8rem 0.35rem 0.55rem;
-  border: 1px solid var(--border);
+  font-weight: 500;
+  padding: 0.45rem 1.8rem 0.45rem 0.6rem;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
-  background-color: var(--surface);
+  background-color: var(--surface-sunk);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 0.6rem center;
@@ -1547,7 +1565,14 @@ h6.md-heading {
 }
 
 .setting > select:hover {
-  border-color: var(--fg-dim);
+  border-color: var(--accent);
+}
+
+/* Keyboard focus has to be at least as loud as hover, not quieter. */
+.setting > select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
 }
 
 .setting > select option {
@@ -1557,11 +1582,13 @@ h6.md-heading {
 
 /* What the current selection does. Changes with the dropdown. */
 .setting-help {
-  margin: 0.4rem 0 0;
+  margin: 0.45rem 0 0;
   font-family: var(--font-ui);
-  font-size: 0.76rem;
+  font-size: 0.75rem;
   line-height: 1.45;
-  color: var(--fg);
+  /* Was --fg, the same colour as the label above it. Three elements
+     at full strength in one block means none of them leads. */
+  color: var(--fg-dim);
 }
 
 /* What the setting IS — the part that does not change with the
@@ -2820,12 +2847,28 @@ h6.md-heading {
   background: var(--surface-sunk);
   font-family: var(--font-mono);
   font-size: 0.66rem;
+  /* A button inherits neither weight nor line height from the tree
+     around it, and the default medium weight made the pill heavier
+     than the string it is attached to. */
+  font-weight: 400;
+  line-height: 1.5;
   color: var(--fg-dim);
   cursor: pointer;
+  /* Keeps the pill whole when the string it follows wraps, rather
+     than letting "+136" and "chars" land on separate lines. */
+  white-space: nowrap;
+  vertical-align: baseline;
 }
 
 .jt-more:hover {
   color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Focus has to be visible: this is a real control reached by Tab. */
+.jt-more:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 
@@ -3028,6 +3071,9 @@ h6.md-heading {
   margin-bottom: 0.4rem;
 }
 
+/* Same treatment as the dropdowns: a sunk fill and a stronger edge,
+   so the field reads as somewhere to type rather than as a box drawn
+   on the panel. */
 #api-key-input {
   flex: 1;
   min-width: 0; /* lets the flex item shrink rather than overflow the row */
@@ -3035,9 +3081,13 @@ h6.md-heading {
   font-family: var(--font-mono);
   font-size: 0.85rem;
   color: var(--fg);
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--surface-sunk);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
+}
+
+#api-key-input:hover {
+  border-color: var(--accent);
 }
 
 #api-key-input:focus-visible {
