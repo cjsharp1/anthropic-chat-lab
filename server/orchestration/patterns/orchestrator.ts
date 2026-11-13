@@ -86,6 +86,7 @@
 
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import type Anthropic from "@anthropic-ai/sdk";
 import { client, MAX_TOKENS } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
@@ -95,10 +96,16 @@ import {
   withCachedHistory,
   withCachedSystem,
 } from "../../caching.js";
-import { formatCost, snippet, summariseUsage } from "../../usage.js";
+import {
+  formatCost,
+  snippet,
+  summariseUsage,
+  type UsageSummary,
+} from "../../usage.js";
 import { thinkingConfig } from "../../thinking.js";
 import { withEffort } from "../../effort.js";
 import type { Pattern, PatternContext, PatternResult } from "../types.js";
+import type { Logger } from "../../logger.js";
 
 /**
  * Caps each worker.
@@ -266,29 +273,7 @@ export const orchestrator: Pattern = {
       ...withEffort(effort, { format: zodOutputFormat(PlanSchema) }),
     };
 
-    log.api(
-      `Planning with ${deciding}`,
-      {
-        request: planRequest,
-        structured_output:
-          "The reply is constrained to match a schema, so it cannot come " +
-          "back as prose or wrapped in a code fence. Without that, code " +
-          "calling JSON.parse on the reply breaks whenever the model " +
-          "decides to be conversational.",
-        why_haiku:
-          "Splitting a question into parts is reading comprehension, not " +
-          "reasoning. Measured against Opus on three questions, Haiku " +
-          "produced plans as good or better at about a fiftieth of the " +
-          "cost and half the latency. The workers and the synthesiser " +
-          "stay on " + producing + ", because those write the answer.",
-      },
-      {
-        direction: "out",
-        iteration: 1,
-        actor: "app",
-        because: "this pattern plans the subtasks before dispatching them",
-      },
-    );
+    logPlanRequest(log, producing, deciding, planRequest);
 
     const planStarted = Date.now();
 
@@ -307,83 +292,18 @@ export const orchestrator: Pattern = {
     const plan = planResponse.parsed_output as Plan | undefined;
     const subtasks = (plan?.subtasks ?? []).slice(0, MAX_SUBTASKS);
 
-    log.api(
-      `${planUsage.totalInput} in / ${planUsage.output} out · ` +
-        `${formatCost(planUsage.cost)} · ${planElapsed}ms`,
-      {
-        iteration: 1,
-        elapsed_ms: planElapsed,
-        estimated_cost: formatCost(planUsage.cost),
-        // The parsed plan, as an object rather than as text. This is
-        // the row to expand when a question gets split oddly.
-        plan: plan ?? "(nothing parsed)",
-        response: {
-          model: planResponse.model,
-          stop_reason: planResponse.stop_reason,
-          usage: planResponse.usage,
-        },
-      },
-      {
-        direction: "in",
-        iteration: 1,
-        actor: "claude",
-        because: "the planner returned a structured plan",
-      },
-    );
+    logPlanResponse(log, planResponse, planElapsed, planUsage, plan);
 
     if (subtasks.length === 0) {
-      log.error(
-        "The planner returned no subtasks",
-        {
-          parsed: plan ?? null,
-          note:
-            "Nothing to dispatch. Falling back to answering the question " +
-            "directly, which costs one more request than a single call " +
-            "would have — the planning call is already paid for.",
-        },
-        {
-          iteration: 1,
-          actor: "claude",
-          because: "the plan contained an empty subtask list",
-        },
-      );
+      logNoSubtasks(log, plan);
     }
 
     if ((plan?.subtasks.length ?? 0) > MAX_SUBTASKS) {
       // warn, not error: the cap applied and the run continued with five subtasks.
-      log.warn(
-        `Planner produced ${plan?.subtasks.length} subtasks — capped at ${MAX_SUBTASKS}`,
-        {
-          note:
-            "Each subtask is a billed request. The schema asks for at " +
-            "most five and the cap enforces it, because a schema " +
-            "describes a shape and cannot enforce a count.",
-        },
-        {
-          iteration: 1,
-          actor: "app",
-          because: "the plan exceeded the subtask limit",
-        },
-      );
+      logSubtasksCapped(log, plan);
     }
 
-    log.info(
-      `Plan: ${subtasks.length} subtask(s) — ` +
-        subtasks.map((t) => t.title).join(", "),
-      {
-        reasoning: plan?.reasoning,
-        subtasks: subtasks.map((t, i) => ({
-          n: i + 1,
-          title: t.title,
-          question: t.question,
-        })),
-      },
-      {
-        iteration: 1,
-        actor: "claude",
-        because: "the planner decided how to divide the work",
-      },
-    );
+    logPlan(log, plan, subtasks);
 
     // --- Calls two to N: the workers ----------------------------------------
     //
@@ -424,22 +344,7 @@ export const orchestrator: Pattern = {
           ...withEffort(effort),
         };
 
-        log.api(
-          `Worker ${i + 1}: ${subtask.title}`,
-          {
-            request: workerRequest,
-            note:
-              "The worker sees only this question — no conversation, no " +
-              "sibling subtasks. That isolation is why they can run at " +
-              "once, and why the planner had to write it self-contained.",
-          },
-          {
-            direction: "out",
-            iteration: 2,
-            actor: "app",
-            because: `subtask ${i + 1} of ${subtasks.length}`,
-          },
-        );
+        logWorkerRequest(log, subtasks, workerRequest, i, subtask);
 
         try {
           const response = await client.messages.create(workerRequest);
@@ -453,52 +358,14 @@ export const orchestrator: Pattern = {
 
           const usage = summariseUsage(response.usage, response.model);
 
-          log.api(
-            `Worker ${i + 1} · ${usage.totalInput} in / ${usage.output} out · ` +
-              `${formatCost(usage.cost)} · ${elapsedMs}ms`,
-            {
-              iteration: 2,
-              subtask: subtask.title,
-              elapsed_ms: elapsedMs,
-              estimated_cost: formatCost(usage.cost),
-              question: subtask.question,
-              answer: text,
-              response: {
-                model: response.model,
-                stop_reason: response.stop_reason,
-                usage: response.usage,
-              },
-            },
-            {
-              direction: "in",
-              iteration: 2,
-              actor: "claude",
-              because: `worker ${i + 1} finished its subtask`,
-            },
-          );
+          logWorkerResponse(log, response, elapsedMs, text, usage, i, subtask);
 
           // Truncation here is the quiet failure this pattern is most
           // prone to. The worker returns HTTP 200 with a fragment, the
           // synthesiser merges it without complaint, and the final
           // answer is subtly incomplete with nothing to indicate why.
           if (response.stop_reason === "max_tokens") {
-            log.error(
-              `Worker ${i + 1} was truncated at ${WORKER_MAX_TOKENS} tokens`,
-              {
-                subtask: subtask.title,
-                max_tokens: WORKER_MAX_TOKENS,
-                output_tokens: usage.output,
-                note:
-                  "Its answer is cut off mid-sentence and will be merged " +
-                  "as-is. The merged answer will look complete and will " +
-                  "be missing whatever this worker was about to say.",
-              },
-              {
-                iteration: 2,
-                actor: "claude",
-                because: "the worker reached max_tokens before finishing",
-              },
-            );
+            logWorkerTruncated(log, usage, i, subtask);
           }
 
           return {
@@ -513,15 +380,7 @@ export const orchestrator: Pattern = {
           const message =
             error instanceof Error ? error.message : String(error);
 
-          log.error(
-            `Worker ${i + 1} failed: ${message.slice(0, 48)}`,
-            { subtask: subtask.title, error: message },
-            {
-              iteration: 2,
-              actor: "app",
-              because: "this worker's request threw",
-            },
-          );
+          logWorkerFailed(log, message, i, subtask);
 
           return {
             title: subtask.title,
@@ -543,21 +402,12 @@ export const orchestrator: Pattern = {
     const succeeded = workers.filter((w) => !w.failed && w.text);
 
     if (workers.length > 0) {
-      log.info(
-        `${workers.length} worker(s) finished in ${workersElapsed}ms ` +
-          `(${sequentialWouldBe}ms in sequence)`,
-        {
-          wall_clock_ms: workersElapsed,
-          sum_of_workers_ms: sequentialWouldBe,
-          saved_ms: sequentialWouldBe - workersElapsed,
-          succeeded: succeeded.length,
-          failed: workers.length - succeeded.length,
-        },
-        {
-          iteration: 2,
-          actor: "app",
-          because: "every worker has returned or failed",
-        },
+      logWorkersFinished(
+        log,
+        workers,
+        workersElapsed,
+        sequentialWouldBe,
+        succeeded,
       );
     }
 
@@ -608,21 +458,7 @@ export const orchestrator: Pattern = {
       ...withEffort(effort),
     };
 
-    log.api(
-      `Synthesising ${succeeded.length} answer(s)`,
-      {
-        request: synthRequest,
-        note:
-          "The largest request of the run: its input carries every " +
-          "worker's answer. Dividing the work does not divide the tokens.",
-      },
-      {
-        direction: "out",
-        iteration: 3,
-        actor: "app",
-        because: "the workers are done and their answers need merging",
-      },
-    );
+    logSynthRequest(log, succeeded, synthRequest);
 
     const synthStarted = Date.now();
 
@@ -652,66 +488,384 @@ export const orchestrator: Pattern = {
     const synthUsage = summariseUsage(synthResponse.usage, synthResponse.model);
     totalCost += synthUsage.cost;
 
-    log.api(
-      `${synthUsage.totalInput} in / ${synthUsage.output} out · ` +
-        `${formatCost(synthUsage.cost)} · ${synthElapsed}ms · ` +
-        `${synthResponse.stop_reason} · ${snippet(text)}`,
-      {
-        iteration: 3,
-        elapsed_ms: synthElapsed,
-        estimated_cost: formatCost(synthUsage.cost),
-        // What caching did, in words. The raw cache_read and
-        // cache_write numbers are the ones in the documentation, but
-        // they do not say which of three states this request was in,
-        // and the three look similar until you know what to compare.
-        caching: {
-          hit_rate: `${Math.round(synthUsage.cacheHitRate * 100)}%`,
-          read_from_cache: synthUsage.cacheRead,
-          written_to_cache: synthUsage.cacheWrite,
-          fresh: synthUsage.input,
-          what_happened: describeCacheOutcome(synthUsage),
-        },
-        response: {
-          model: synthResponse.model,
-          stop_reason: synthResponse.stop_reason,
-          usage: synthResponse.usage,
-        },
-      },
-      {
-        direction: "in",
-        iteration: 3,
-        actor: "claude",
-        because: "the synthesis call returned the merged answer",
-      },
-    );
+    logSynthResponse(log, text, synthResponse, synthElapsed, synthUsage);
 
     const requests = 1 + workers.length + 1;
 
-    log.info(
-      `Orchestrator complete · ${requests} requests · ${formatCost(totalCost)}`,
-      {
-        requests,
-        planner_model: deciding,
-        worker_model: producing,
-        plan_cost: formatCost(planUsage.cost),
-        worker_cost: formatCost(
-          workers.reduce((n, w) => n + w.cost, 0),
-        ),
-        synthesis_cost: formatCost(synthUsage.cost),
-        total_cost: totalCost,
-        wall_clock_saved_ms: sequentialWouldBe - workersElapsed,
-        note:
-          "The most expensive pattern here. Worth it when a question has " +
-          "genuinely separable parts and someone is waiting; wasteful " +
-          "when it does not, which the plan above will show.",
-      },
-      {
-        iteration: 3,
-        actor: "app",
-        because: "every stage has completed",
-      },
+    logOrchestratorSummary(
+      log,
+      producing,
+      deciding,
+      totalCost,
+      planUsage,
+      workers,
+      workersElapsed,
+      sequentialWouldBe,
+      synthUsage,
+      requests,
     );
 
     return { text, cost: totalCost, requests };
   },
 };
+
+// ---------------------------------------------------------------------------
+// Activity-log rows: what the panel shows for each step above
+// ---------------------------------------------------------------------------
+//
+// Everything below builds a log row. None of it changes what is sent to
+// Anthropic or what comes back, which is why it sits here rather than
+// inside run(): the steps above should read as the pattern, and this is
+// the commentary on them.
+//
+// Same arrangement as the other patterns, deliberately. A reader who
+// has seen one should recognise the rest.
+
+function logPlanRequest(
+  log: Logger,
+  producing: string,
+  deciding: string,
+  planRequest: Anthropic.MessageCreateParams,
+): void {
+  log.api(
+    `Planning with ${deciding}`,
+    {
+      request: planRequest,
+      structured_output:
+        "The reply is constrained to match a schema, so it cannot come " +
+        "back as prose or wrapped in a code fence. Without that, code " +
+        "calling JSON.parse on the reply breaks whenever the model " +
+        "decides to be conversational.",
+      why_haiku:
+        "Splitting a question into parts is reading comprehension, not " +
+        "reasoning. Measured against Opus on three questions, Haiku " +
+        "produced plans as good or better at about a fiftieth of the " +
+        "cost and half the latency. The workers and the synthesiser " +
+        "stay on " + producing + ", because those write the answer.",
+    },
+    {
+      direction: "out",
+      iteration: 1,
+      actor: "app",
+      because: "this pattern plans the subtasks before dispatching them",
+    },
+  );
+}
+
+function logPlanResponse(
+  log: Logger,
+  planResponse: Anthropic.Message,
+  planElapsed: number,
+  planUsage: UsageSummary,
+  plan: Plan | undefined,
+): void {
+  log.api(
+    `${planUsage.totalInput} in / ${planUsage.output} out · ` +
+      `${formatCost(planUsage.cost)} · ${planElapsed}ms`,
+    {
+      iteration: 1,
+      elapsed_ms: planElapsed,
+      estimated_cost: formatCost(planUsage.cost),
+      // The parsed plan, as an object rather than as text. This is
+      // the row to expand when a question gets split oddly.
+      plan: plan ?? "(nothing parsed)",
+      response: {
+        model: planResponse.model,
+        stop_reason: planResponse.stop_reason,
+        usage: planResponse.usage,
+      },
+    },
+    {
+      direction: "in",
+      iteration: 1,
+      actor: "claude",
+      because: "the planner returned a structured plan",
+    },
+  );
+}
+
+function logNoSubtasks(log: Logger, plan: Plan | undefined): void {
+  log.error(
+    "The planner returned no subtasks",
+    {
+      parsed: plan ?? null,
+      note:
+        "Nothing to dispatch. Falling back to answering the question " +
+        "directly, which costs one more request than a single call " +
+        "would have — the planning call is already paid for.",
+    },
+    {
+      iteration: 1,
+      actor: "claude",
+      because: "the plan contained an empty subtask list",
+    },
+  );
+}
+
+function logSubtasksCapped(log: Logger, plan: Plan | undefined): void {
+  log.warn(
+    `Planner produced ${plan?.subtasks.length} subtasks — capped at ${MAX_SUBTASKS}`,
+    {
+      note:
+        "Each subtask is a billed request. The schema asks for at " +
+        "most five and the cap enforces it, because a schema " +
+        "describes a shape and cannot enforce a count.",
+    },
+    {
+      iteration: 1,
+      actor: "app",
+      because: "the plan exceeded the subtask limit",
+    },
+  );
+}
+
+function logPlan(
+  log: Logger,
+  plan: Plan | undefined,
+  subtasks: Plan["subtasks"],
+): void {
+  log.info(
+    `Plan: ${subtasks.length} subtask(s) — ` +
+      subtasks.map((t) => t.title).join(", "),
+    {
+      reasoning: plan?.reasoning,
+      subtasks: subtasks.map((t, i) => ({
+        n: i + 1,
+        title: t.title,
+        question: t.question,
+      })),
+    },
+    {
+      iteration: 1,
+      actor: "claude",
+      because: "the planner decided how to divide the work",
+    },
+  );
+}
+
+function logWorkerRequest(
+  log: Logger,
+  subtasks: Plan["subtasks"],
+  workerRequest: Anthropic.MessageCreateParams,
+  i: number,
+  subtask: Plan["subtasks"][number],
+): void {
+  log.api(
+    `Worker ${i + 1}: ${subtask.title}`,
+    {
+      request: workerRequest,
+      note:
+        "The worker sees only this question — no conversation, no " +
+        "sibling subtasks. That isolation is why they can run at " +
+        "once, and why the planner had to write it self-contained.",
+    },
+    {
+      direction: "out",
+      iteration: 2,
+      actor: "app",
+      because: `subtask ${i + 1} of ${subtasks.length}`,
+    },
+  );
+}
+
+function logWorkerResponse(
+  log: Logger,
+  response: Anthropic.Message,
+  elapsedMs: number,
+  text: string,
+  usage: UsageSummary,
+  i: number,
+  subtask: Plan["subtasks"][number],
+): void {
+  log.api(
+    `Worker ${i + 1} · ${usage.totalInput} in / ${usage.output} out · ` +
+      `${formatCost(usage.cost)} · ${elapsedMs}ms`,
+    {
+      iteration: 2,
+      subtask: subtask.title,
+      elapsed_ms: elapsedMs,
+      estimated_cost: formatCost(usage.cost),
+      question: subtask.question,
+      answer: text,
+      response: {
+        model: response.model,
+        stop_reason: response.stop_reason,
+        usage: response.usage,
+      },
+    },
+    {
+      direction: "in",
+      iteration: 2,
+      actor: "claude",
+      because: `worker ${i + 1} finished its subtask`,
+    },
+  );
+}
+
+function logWorkerTruncated(
+  log: Logger,
+  usage: UsageSummary,
+  i: number,
+  subtask: Plan["subtasks"][number],
+): void {
+  log.error(
+    `Worker ${i + 1} was truncated at ${WORKER_MAX_TOKENS} tokens`,
+    {
+      subtask: subtask.title,
+      max_tokens: WORKER_MAX_TOKENS,
+      output_tokens: usage.output,
+      note:
+        "Its answer is cut off mid-sentence and will be merged " +
+        "as-is. The merged answer will look complete and will " +
+        "be missing whatever this worker was about to say.",
+    },
+    {
+      iteration: 2,
+      actor: "claude",
+      because: "the worker reached max_tokens before finishing",
+    },
+  );
+}
+
+function logWorkerFailed(
+  log: Logger,
+  message: string,
+  i: number,
+  subtask: Plan["subtasks"][number],
+): void {
+  log.error(
+    `Worker ${i + 1} failed: ${message.slice(0, 48)}`,
+    { subtask: subtask.title, error: message },
+    {
+      iteration: 2,
+      actor: "app",
+      because: "this worker's request threw",
+    },
+  );
+}
+
+function logWorkersFinished(
+  log: Logger,
+  workers: WorkerResult[],
+  workersElapsed: number,
+  sequentialWouldBe: number,
+  succeeded: WorkerResult[],
+): void {
+  log.info(
+    `${workers.length} worker(s) finished in ${workersElapsed}ms ` +
+      `(${sequentialWouldBe}ms in sequence)`,
+    {
+      wall_clock_ms: workersElapsed,
+      sum_of_workers_ms: sequentialWouldBe,
+      saved_ms: sequentialWouldBe - workersElapsed,
+      succeeded: succeeded.length,
+      failed: workers.length - succeeded.length,
+    },
+    {
+      iteration: 2,
+      actor: "app",
+      because: "every worker has returned or failed",
+    },
+  );
+}
+
+function logSynthRequest(
+  log: Logger,
+  succeeded: WorkerResult[],
+  synthRequest: Anthropic.MessageCreateParams,
+): void {
+  log.api(
+    `Synthesising ${succeeded.length} answer(s)`,
+    {
+      request: synthRequest,
+      note:
+        "The largest request of the run: its input carries every " +
+        "worker's answer. Dividing the work does not divide the tokens.",
+    },
+    {
+      direction: "out",
+      iteration: 3,
+      actor: "app",
+      because: "the workers are done and their answers need merging",
+    },
+  );
+}
+
+function logSynthResponse(
+  log: Logger,
+  text: string,
+  synthResponse: Anthropic.Message,
+  synthElapsed: number,
+  synthUsage: UsageSummary,
+): void {
+  log.api(
+    `${synthUsage.totalInput} in / ${synthUsage.output} out · ` +
+      `${formatCost(synthUsage.cost)} · ${synthElapsed}ms · ` +
+      `${synthResponse.stop_reason} · ${snippet(text)}`,
+    {
+      iteration: 3,
+      elapsed_ms: synthElapsed,
+      estimated_cost: formatCost(synthUsage.cost),
+      // What caching did, in words. The raw cache_read and
+      // cache_write numbers are the ones in the documentation, but
+      // they do not say which of three states this request was in,
+      // and the three look similar until you know what to compare.
+      caching: {
+        hit_rate: `${Math.round(synthUsage.cacheHitRate * 100)}%`,
+        read_from_cache: synthUsage.cacheRead,
+        written_to_cache: synthUsage.cacheWrite,
+        fresh: synthUsage.input,
+        what_happened: describeCacheOutcome(synthUsage),
+      },
+      response: {
+        model: synthResponse.model,
+        stop_reason: synthResponse.stop_reason,
+        usage: synthResponse.usage,
+      },
+    },
+    {
+      direction: "in",
+      iteration: 3,
+      actor: "claude",
+      because: "the synthesis call returned the merged answer",
+    },
+  );
+}
+
+function logOrchestratorSummary(
+  log: Logger,
+  producing: string,
+  deciding: string,
+  totalCost: number,
+  planUsage: UsageSummary,
+  workers: WorkerResult[],
+  workersElapsed: number,
+  sequentialWouldBe: number,
+  synthUsage: UsageSummary,
+  requests: number,
+): void {
+  log.info(
+    `Orchestrator complete · ${requests} requests · ${formatCost(totalCost)}`,
+    {
+      requests,
+      planner_model: deciding,
+      worker_model: producing,
+      plan_cost: formatCost(planUsage.cost),
+      worker_cost: formatCost(
+        workers.reduce((n, w) => n + w.cost, 0),
+      ),
+      synthesis_cost: formatCost(synthUsage.cost),
+      total_cost: totalCost,
+      wall_clock_saved_ms: sequentialWouldBe - workersElapsed,
+      note:
+        "The most expensive pattern here. Worth it when a question has " +
+        "genuinely separable parts and someone is waiting; wasteful " +
+        "when it does not, which the plan above will show.",
+    },
+    {
+      iteration: 3,
+      actor: "app",
+      because: "every stage has completed",
+    },
+  );
+}
