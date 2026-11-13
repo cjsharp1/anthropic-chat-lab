@@ -21,7 +21,7 @@
  * types: one builder, and the caller decides where the events go.
  */
 
-import type { LogDirection, LogEvent, LogLevel } from "./types.js";
+import type { LogDirection, LogEvent, LogLevel } from "../shared/types.js";
 
 /**
  * Where a log event goes once it has been built.

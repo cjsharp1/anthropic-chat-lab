@@ -374,7 +374,6 @@ server/
   index.ts              Express app and every API route
   anthropic.ts          The shared SDK client and model ids
   api-key.ts            The API key, held in memory for the session
-  types.ts              LogEvent, StreamEvent, the shared shapes
   logger.ts             Builds log events; knows nothing about HTTP
   usage.ts              Token counts, pricing, the cache tally
   caching.ts            Where cache_control breakpoints go

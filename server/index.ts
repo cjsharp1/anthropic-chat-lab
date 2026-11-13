@@ -76,7 +76,7 @@ import {
   getStatus as getMcpStatus,
   type McpConnectRequest,
 } from "./mcp/client.js";
-import type { StreamEvent } from "./types.js";
+import type { StreamEvent } from "../shared/types.js";
 import { formatCost } from "./usage.js";
 
 const app = express();
