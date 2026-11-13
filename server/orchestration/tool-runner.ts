@@ -122,8 +122,8 @@ export async function runOneTool(
   //
   // `strict: true` on the tool definition guarantees the SHAPE of the
   // input — which fields exist and of what type. It does not check
-  // values, and step 39 had to strip the numeric bounds from the schema
-  // entirely because strict mode rejects them.
+  // values, and `toApiTool` in tools/api-format.ts strips the numeric
+  // bounds from the schema entirely, because strict mode rejects them.
   //
   // So without this parse, measurably wrong input reaches the tools:
   //

@@ -7,8 +7,9 @@
  * and it compiles to nothing at all.
  *
  * Keeping the definitions in one file means the two halves cannot quietly
- * disagree about what a log event looks like. When step 21 renders a level
- * tag, the set of levels it must handle is the one defined here.
+ * disagree about what a log event looks like. When the log panel
+ * renders a level tag, the set of levels it must handle is the one
+ * defined here.
  */
 
 // ---------------------------------------------------------------------------
@@ -31,9 +32,10 @@
  *          stop reason. Counting them is how you compare orchestration
  *          patterns honestly.
  *
- *   tool   A tool being invoked and its result. From step 57 these are also
- *          tagged client or server, to distinguish tools this app executes
- *          from tools Anthropic runs for us.
+ *   tool   A tool being invoked and its result. These are also tagged
+ *          client, server or mcp, to distinguish tools this app
+ *          executes from tools Anthropic runs and tools borrowed from
+ *          an MCP server.
  *
  *   warn   Nothing failed, but you should know. A pattern ignoring the
  *          enabled tools; a planner reporting that it was not needed; a
@@ -171,7 +173,7 @@ export interface LogEvent {
    * The full data behind the event: a request body, a tool result, a token
    * breakdown, an error with its stack.
    *
-   * Rendered inside a collapsed <details> element in step 22, so the panel
+   * Rendered inside a collapsed <details> element, so the panel
    * stays scannable while the detail stays one click away. Optional, because
    * plenty of events are fully described by their label.
    *

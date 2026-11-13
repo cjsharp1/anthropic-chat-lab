@@ -1332,7 +1332,7 @@ function initResizer(): void {
   });
 }
 
-// --- Preset questions (step 64) ---------------------------------------------
+// --- Preset questions -------------------------------------------------------
 
 
 const PRESETS: Preset[] = [
@@ -1468,10 +1468,10 @@ function usePreset(preset: Preset): void {
   });
 }
 
-// --- Session cost (step 66) -------------------------------------------------
+// --- Session cost -----------------------------------------------------------
 
 
-// --- Clear and export (step 65) ---------------------------------------------
+// --- Clear and export -------------------------------------------------------
 
 /**
  * Clears the transcript, the state.conversation, the log and the cost.
@@ -1510,8 +1510,8 @@ function clearChat(): void {
  * closes — so what this proves is the plumbing: the browser can open a
  * stream, parse structured events out of it, and act on them.
  *
- * Step 21 renders those events into the log panel. Step 23 makes the server
- * end real.
+ * Those events reach the log panel through appendLog, and the text
+ * deltas reach the transcript as they arrive.
  */
 async function handleSubmit(event: SubmitEvent): Promise<void> {
   // Without this the browser navigates away and reloads the page — the
@@ -1628,8 +1628,9 @@ async function handleSubmit(event: SubmitEvent): Promise<void> {
  * discriminated union, adding a variant to it and forgetting to handle it
  * here is a compile error rather than a silent no-op at runtime.
  *
- * For now every branch goes to the console. Step 21 sends log events to the
- * panel, and step 24 renders deltas into the transcript as they arrive.
+ * Each branch does its own thing: log rows go to the panel, text
+ * deltas are appended to the reply as they arrive, and the thinking
+ * summary gets its own block above the answer.
  */
 function handleStreamEvent(event: StreamEvent): void {
   switch (event.type) {

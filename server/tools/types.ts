@@ -123,8 +123,9 @@ export function fromZod<TInput>(schema: z.ZodType<TInput>): SchemaLike {
  *
  * Generic over its input type so that `run` receives properly typed,
  * already-validated arguments rather than `unknown`. The schema is the
- * single source of truth: it generates the JSON Schema sent to the API in
- * step 38, and validates what comes back in step 44.
+ * single source of truth: `toApiTool` turns it into the JSON Schema
+ * sent to the API, and tool-runner.ts validates what comes back
+ * against the same object.
  */
 export interface LabTool<TInput = unknown> {
   /**
@@ -165,15 +166,16 @@ export interface LabTool<TInput = unknown> {
    * Runs the tool and returns a result for Claude to read.
    *
    * Always async, even where the work is synchronous, so that every tool
-   * has the same signature and the executor in step 40 does not have to
-   * care which is which.
+   * has the same signature and `runOneTool` in tool-runner.ts does not
+   * have to care which is which.
    *
    * The return value is a string because that is what a tool_result block
    * carries. Return something the model can act on: a number, a sentence,
    * or JSON — but say what it is. "42" alone is less useful than
    * "7 × 6 = 42".
    *
-   * Throwing is allowed and expected. Step 43 catches it and returns a
+   * Throwing is allowed and expected. tool-runner.ts catches it and
+   * returns a
    * tool_result with is_error set, which lets Claude recover rather than
    * the whole request failing.
    */
@@ -195,9 +197,10 @@ export interface LabTool<TInput = unknown> {
   /**
    * Whether this tool runs here or on Anthropic's servers.
    *
-   * Most tools are "client" — our code executes them. Step 56 adds
-   * web_search, which Anthropic runs for us, and step 57 tags the log rows
-   * so the difference is visible. Defaults to client when omitted.
+   * Most tools are "client" — our code executes them. web_search, in
+   * tools/server-tools.ts, is one Anthropic runs for us, and
+   * tools/server-tool-log.ts tags the log rows so the difference is
+   * visible. Defaults to client when omitted.
    *
    * "mcp" is a third place, added when this app learned to connect to
    * an MCP server. Those tools run on a DIFFERENT MACHINE — or at
@@ -220,8 +223,9 @@ export interface LabTool<TInput = unknown> {
  *
  * The trade is deliberate: inside a tool file the input is fully typed,
  * and at the point of execution it is unvalidated — which is correct,
- * because there the arguments came from the model. Step 44 parses them
- * through `inputSchema` before `run` is called, and that parse is what
+ * because there the arguments came from the model. tool-runner.ts
+ * parses them through `inputSchema` before `run` is called, and that
+ * parse is what
  * makes them safe to use.
  */
 /**

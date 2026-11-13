@@ -10,7 +10,7 @@
  * Why this is interesting
  * ---------------------------------------------------------------------------
  *
- * The conversation history (step 26) is one kind of memory: everything
+ * The conversation history is one kind of memory: everything
  * said, resent in full on every turn, and paid for in input tokens each
  * time. This is a different kind. The note lives on the server, costs
  * nothing to keep, and only enters the conversation when Claude asks for
@@ -163,7 +163,7 @@ export const notesTool = defineTool({
 /**
  * Empties the scratchpad.
  *
- * Exported for the Clear button in step 65 — clearing the conversation
+ * Exported for the Clear button in the UI — clearing the conversation
  * should clear what was remembered during it, or the next conversation
  * starts with notes it never took.
  */

@@ -22,9 +22,10 @@
  * The API needs JSON Schema. We could write that by hand in each tool
  * file. The reason not to is that the same shape is needed twice: once to
  * tell Claude what arguments are valid, and once to check the arguments
- * that come back (step 44). Two hand-written copies drift — someone adds
- * a field to the validator and forgets the schema, and the model keeps
- * sending the old shape with no indication anything is wrong.
+ * that come back, which tool-runner.ts does before running anything.
+ * Two hand-written copies drift — someone adds a field to the
+ * validator and forgets the schema, and the model keeps sending the
+ * old shape with no indication anything is wrong.
  *
  * One Zod schema generates both. It cannot drift from itself.
  */
@@ -120,8 +121,8 @@ export function toApiTool(tool: AnyLabTool): Anthropic.Tool {
   //
   // Strict mode constrains the SHAPE of the arguments — which fields
   // exist and of what type — not their values. The bounds are not lost:
-  // the same Zod schema validates the arguments in step 44, where a
-  // limit of 50 is rejected before the tool runs. Describing the range
+  // the same Zod schema validates the arguments in tool-runner.ts,
+  // where a limit of 50 is rejected before the tool runs. Describing the range
   // in the field's .describe() text is what actually steers the model.
   stripUnsupportedKeywords(schema);
 
@@ -135,7 +136,8 @@ export function toApiTool(tool: AnyLabTool): Anthropic.Tool {
     // and a "required" array, both of which z.toJSONSchema already
     // produces.
     //
-    // This does not remove the need to validate in step 44. The guarantee
+    // This does not remove the need to validate in tool-runner.ts
+    // before the tool runs. The guarantee
     // covers the shape; it does not cover whether the values make sense
     // for the tool, and a defensive parse at the point of execution costs
     // nothing.

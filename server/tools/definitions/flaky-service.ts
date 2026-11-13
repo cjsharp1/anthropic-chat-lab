@@ -34,8 +34,8 @@
  * and which is worth discussing — is retrying indefinitely, or inventing a
  * plausible result rather than reporting the failure.
  *
- * The iteration cap in step 41 exists precisely because the first failure
- * mode is real.
+ * The iteration cap in the tool loop exists precisely because the
+ * first failure mode is real.
  */
 
 import { z } from "zod";
@@ -110,7 +110,7 @@ export const flakyService = defineTool({
 
     // A short delay, so the timing in the log panel looks like a real
     // network call rather than an instant local function. It also makes
-    // the parallel execution in step 42 visibly concurrent: three calls
+    // the tool loop's Promise.all visibly concurrent: three calls
     // taking 300ms each finish in 300ms together, not 900ms in sequence.
     await new Promise((resolve) => setTimeout(resolve, 200 + Math.random() * 200));
 
@@ -123,7 +123,8 @@ export const flakyService = defineTool({
           Math.floor(Math.random() * Object.keys(failureModes).length)
         ]!;
 
-      // Thrown rather than returned. Step 43 catches this and sends it
+      // Thrown rather than returned. tool-runner.ts catches this and
+      // sends it
       // back as a tool_result with is_error set, which is what lets Claude
       // respond to the failure instead of the whole request collapsing.
       //
@@ -148,7 +149,7 @@ export const flakyService = defineTool({
   },
 });
 
-/** Resets the counters. Used by the Clear button in step 65. */
+/** Resets the counters. Used by the Clear button in the UI. */
 export function resetFlakyCounters(): void {
   callCount = 0;
   failureCount = 0;

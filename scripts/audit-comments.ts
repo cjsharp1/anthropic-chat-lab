@@ -3,10 +3,10 @@
  *
  * Run it with:  npm run audit-comments
  *
- * The rule this project set itself in step 1 was that every file opens
- * with a plain-language overview: what it does, why it exists, and
- * which concept it teaches. Sixty-odd steps later that is not
- * something anyone can verify by remembering.
+ * The rule this project set itself was that every file opens with a
+ * plain-language overview: what it does, why it exists, and which
+ * concept it teaches. Across fifty-odd files that is not something
+ * anyone can verify by remembering.
  *
  * So this walks the tree and checks. It is deliberately crude — it
  * cannot tell a good explanation from a bad one, only a present one

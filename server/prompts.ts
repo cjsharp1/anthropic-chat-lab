@@ -17,7 +17,8 @@
  *     saying "ignore your instructions" is a message; this is not.
  *
  *   - It sits at the very start of the request, before the messages. That
- *     position is why it is the natural thing to cache in step 58: it is
+ *     position is why it is the natural thing to cache (see
+ *     server/caching.ts): it is
  *     identical on every turn, so it forms a stable prefix.
  */
 

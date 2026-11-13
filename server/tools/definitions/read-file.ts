@@ -164,7 +164,8 @@ export const readFileTool = defineTool({
     const resolved = resolveInsideSandbox(requested);
 
     if (!resolved.ok) {
-      // Thrown, so step 43 returns it as an errored tool_result. Claude
+      // Thrown, so tool-runner.ts returns it as an errored
+      // tool_result. Claude
       // reads the refusal and generally stops rather than trying variants.
       throw new Error(resolved.reason);
     }

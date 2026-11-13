@@ -6,7 +6,9 @@
  * This is the entry point for the whole app. It does three jobs:
  *
  *   1. Serves the frontend  — the HTML, CSS and compiled JS in public/
- *   2. Answers API calls    — /api/health now, /api/chat from step 19
+ *   2. Answers API calls    — /api/chat and /api/extract run a turn;
+ *                            the rest report settings, tools and the
+ *                            MCP connection
  *   3. Holds the API key    — see the note below
  *
  * The third job is the one worth pausing on. The browser never talks to
@@ -695,8 +697,8 @@ app.post("/api/extract", async (req, res) => {
  * marks the end of a message — forget it and the browser buffers forever,
  * waiting for a message that never finishes.
  *
- * Right now this sends one hard-coded event and closes. Step 23 replaces the
- * body with a real call to Claude.
+ * The body below streams a real turn: every log row as it happens, then
+ * the text deltas, then a done event.
  */
 app.post("/api/chat", async (req, res) => {
   // Started before anything else, so the figure the reply shows covers
@@ -730,9 +732,10 @@ app.post("/api/chat", async (req, res) => {
     //            Two newlines: one ends the data line, one ends the message.
   }
 
-  // A logger whose events go straight down the wire. This is the indirection
-  // from step 18 paying off: the logger does not know it is talking to a
-  // browser, and the patterns that use it from step 46 will not either.
+  // A logger whose events go straight down the wire. This is what
+  // server/logger.ts buys: the logger does not know it is talking to a
+  // browser, and the patterns in server/orchestration/patterns/ do not
+  // either — they take a Logger and call it.
   const log = makeLogger((event) => send({ type: "log", event }));
 
   try {

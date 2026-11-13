@@ -40,10 +40,11 @@ export type { AnyLabTool, LabTool } from "./types.js";
 export { defineTool } from "./types.js";
 
 /**
- * Every tool the app offers, in the order the UI lists them.
+ * Every LOCAL tool the app offers, in the order the UI lists them.
  *
- * Steps 30 to 36 each add one. Step 37 is where the full set is wired into
- * the API and the interface.
+ * Local only. web_search is in tools/server-tools.ts because
+ * Anthropic runs it, and a tool borrowed over MCP never appears here
+ * at all — `getActiveTools()` below is what merges the three.
  */
 export const TOOLS: AnyLabTool[] = [
   calculator,

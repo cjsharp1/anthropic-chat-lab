@@ -42,7 +42,7 @@
  * The three aspects below are hard-coded rather than chosen per
  * question, which is a deliberate simplification. Deciding the
  * aspects dynamically means an extra call before the fan-out, and
- * that is what the orchestrator pattern (step 53) does. Here the
+ * that is what the orchestrator pattern does. Here the
  * split is fixed so the mechanism is visible without a planner
  * obscuring it.
  *

@@ -116,7 +116,8 @@ export const calculator = defineTool({
         // JavaScript returns Infinity for x/0 rather than throwing, which
         // would give Claude a nonsense number with no indication anything
         // went wrong. Throwing instead produces a tool_result flagged as an
-        // error (step 43), which the model can actually respond to.
+        // error by tool-runner.ts, which the model can actually
+        // respond to.
         if (b === 0) {
           throw new Error("Cannot divide by zero.");
         }
