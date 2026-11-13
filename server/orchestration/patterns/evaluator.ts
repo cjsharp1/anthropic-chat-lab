@@ -52,6 +52,7 @@
 
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
+import type Anthropic from "@anthropic-ai/sdk";
 import { client } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
@@ -62,10 +63,15 @@ import {
   withCachedSystem,
   withCachedTools,
 } from "../../caching.js";
-import { formatCost, summariseUsage } from "../../usage.js";
+import {
+  formatCost,
+  summariseUsage,
+  type UsageSummary,
+} from "../../usage.js";
 import { thinkingConfig } from "../../thinking.js";
 import { withEffort } from "../../effort.js";
 import type { Pattern, PatternContext, PatternResult } from "../types.js";
+import type { Logger } from "../../logger.js";
 
 /**
  * How many times the draft may be rejected before it is returned anyway.
@@ -205,20 +211,7 @@ export const evaluator: Pattern = {
     let lastVerdict: Verdict | null = null;
     let round = 0;
 
-    log.info(
-      `Starting evaluator loop · up to ${MAX_ROUNDS} rounds`,
-      {
-        criteria: CRITERIA,
-        note:
-          "Each round is two requests: one to write, one to judge. The " +
-          "criteria are specific enough to fail — an evaluator asked " +
-          "'is this good?' says yes, and the loop becomes ceremony.",
-      },
-      {
-        actor: "app",
-        because: "this pattern drafts and critiques before answering",
-      },
-    );
+    logLoopStart(log);
 
     while (round < MAX_ROUNDS) {
       round += 1;
@@ -284,30 +277,7 @@ export const evaluator: Pattern = {
         ...withEffort(effort),
       };
 
-      log.api(
-        round === 1
-          ? `Round ${round}: writing the first draft`
-          : `Round ${round}: rewriting after ${lastVerdict?.failed.length} failure(s)`,
-        {
-          round,
-          request: draftRequest,
-          ...(round > 1 && {
-            note:
-              "The previous draft and its critique are in this request's " +
-              "system prompt, which is why the input is larger than last " +
-              "round. Each rejection makes the next attempt cost more.",
-          }),
-        },
-        {
-          direction: "out",
-          iteration: round,
-          actor: "app",
-          because:
-            round === 1
-              ? "the loop needs something to evaluate"
-              : "the previous draft failed review",
-        },
-      );
+      logDraftRequest(log, lastVerdict, round, draftRequest);
 
       const draftStarted = Date.now();
 
@@ -331,57 +301,17 @@ export const evaluator: Pattern = {
       );
       totalCost += draftUsage.cost;
 
-      log.api(
-        `Draft ${round} · ${draftUsage.totalInput} in / ${draftUsage.output} out · ` +
-          `${formatCost(draftUsage.cost)} · ${draftElapsed}ms`,
-        {
-          round,
-          elapsed_ms: draftElapsed,
-          estimated_cost: formatCost(draftUsage.cost),
-          // What caching did, in words. The raw cache_read and
-          // cache_write numbers are the ones in the documentation, but
-          // they do not say which of three states this request was in,
-          // and the three look similar until you know what to compare.
-          caching: {
-            hit_rate: `${Math.round(draftUsage.cacheHitRate * 100)}%`,
-            read_from_cache: draftUsage.cacheRead,
-            written_to_cache: draftUsage.cacheWrite,
-            fresh: draftUsage.input,
-            what_happened: describeCacheOutcome(draftUsage),
-          },
-          // The draft itself. Comparing round one with round three is
-          // the most direct way to see whether the loop improved
-          // anything or merely reworded it.
-          draft,
-          response: {
-            model: draftResponse.model,
-            stop_reason: draftResponse.stop_reason,
-            usage: draftResponse.usage,
-          },
-        },
-        {
-          direction: "in",
-          iteration: round,
-          actor: "claude",
-          because: `the generator produced draft ${round}`,
-        },
+      logDraftResponse(
+        log,
+        draft,
+        round,
+        draftResponse,
+        draftElapsed,
+        draftUsage,
       );
 
       if (draftResponse.stop_reason === "max_tokens") {
-        log.error(
-          `Draft ${round} was truncated at ${DRAFT_MAX_TOKENS} tokens`,
-          {
-            note:
-              "The evaluator will judge an incomplete answer and will " +
-              "probably fail it on 'complete' — which is correct, but " +
-              "the cause is the cap, not the generator.",
-          },
-          {
-            iteration: round,
-            actor: "claude",
-            because: "the draft reached max_tokens before finishing",
-          },
-        );
+        logDraftTruncated(log, round);
       }
 
       // --- Evaluate ---------------------------------------------------------
@@ -431,23 +361,7 @@ export const evaluator: Pattern = {
         ...withEffort(effort, { format: zodOutputFormat(VerdictSchema) }),
       };
 
-      log.api(
-        `Round ${round}: evaluating the draft`,
-        {
-          round,
-          request: evalRequest,
-          note:
-            "A separate call with a different system prompt. The same " +
-            "model asked to review its own work in one turn defends the " +
-            "draft; a fresh call reads it as someone else's.",
-        },
-        {
-          direction: "out",
-          iteration: round,
-          actor: "app",
-          because: "the draft needs judging before it can be returned",
-        },
-      );
+      logEvalRequest(log, round, evalRequest);
 
       const evalStarted = Date.now();
 
@@ -466,76 +380,20 @@ export const evaluator: Pattern = {
       // money without any prospect of the result improving.
       if (!verdict) {
         // warn, not error: the draft is returned and is probably fine; only the check was lost.
-        log.warn(
-          "The evaluator returned nothing parseable — accepting the draft",
-          {
-            note:
-              "Treated as a pass. Retrying would cost another two " +
-              "requests with no reason to expect a different outcome.",
-          },
-          {
-            iteration: round,
-            actor: "app",
-            because: "the verdict did not match the schema",
-          },
-        );
+        logVerdictUnparseable(log, round);
         break;
       }
 
       lastVerdict = verdict;
 
-      log.api(
-        `Verdict ${round}: ${verdict.pass ? "PASS" : "FAIL"} · ` +
-          `${evalUsage.totalInput} in / ${evalUsage.output} out · ` +
-          `${formatCost(evalUsage.cost)} · ${evalElapsed}ms`,
-        {
-          round,
-          pass: verdict.pass,
-          failed_criteria: verdict.failed,
-          feedback: verdict.feedback,
-          elapsed_ms: evalElapsed,
-          estimated_cost: formatCost(evalUsage.cost),
-        },
-        {
-          direction: "in",
-          iteration: round,
-          actor: "claude",
-          because: verdict.pass
-            ? "the draft met every criterion"
-            : `the draft failed on ${verdict.failed.length} criterion/criteria`,
-        },
-      );
+      logVerdict(log, round, evalElapsed, evalUsage, verdict);
 
       if (verdict.pass) {
-        log.info(
-          `Passed on round ${round}`,
-          { rounds_used: round, requests },
-          {
-            iteration: round,
-            actor: "app",
-            because: "the evaluator accepted the draft",
-          },
-        );
+        logPassed(log, requests, round);
         break;
       }
 
-      log.info(
-        `Round ${round} rejected: ${verdict.failed.join(", ")}`,
-        {
-          failed: verdict.failed,
-          feedback: verdict.feedback,
-          note:
-            round < MAX_ROUNDS
-              ? "The feedback goes into the next draft's system prompt."
-              : `Round limit of ${MAX_ROUNDS} reached — the last draft is ` +
-                "returned as it stands.",
-        },
-        {
-          iteration: round,
-          actor: "claude",
-          because: "the evaluator rejected this draft",
-        },
-      );
+      logRejected(log, round, verdict);
     }
 
     // --- Deliver -------------------------------------------------------------
@@ -550,43 +408,282 @@ export const evaluator: Pattern = {
 
     if (!passed && round >= MAX_ROUNDS) {
       // warn, not error: an answer is returned; it just never satisfied the evaluator.
-      log.warn(
-        `Returned without passing after ${MAX_ROUNDS} rounds`,
-        {
-          last_failed: lastVerdict?.failed,
-          last_feedback: lastVerdict?.feedback,
-          note:
-            "The loop gave up and returned the last draft. Usually this " +
-            "means the evaluator is asking for something the generator " +
-            "cannot produce — check whether the criteria are achievable " +
-            "for this question.",
-        },
-        {
-          actor: "app",
-          because: "the round limit was reached with the draft still failing",
-        },
-      );
+      logNeverPassed(log, lastVerdict);
     }
 
-    log.info(
-      `Evaluator complete · ${round} round(s) · ${requests} requests · ` +
-        `${formatCost(totalCost)}`,
-      {
-        rounds: round,
-        requests,
-        passed,
-        total_cost: totalCost,
-        note:
-          "Two requests per round. Compare the first and last drafts in " +
-          "the rows above: if they say the same thing, the loop cost " +
-          "double for nothing, and the criteria are the thing to change.",
-      },
-      {
-        actor: "app",
-        because: "the loop finished",
-      },
-    );
+    logEvaluatorSummary(log, totalCost, requests, round, passed);
 
     return { text: draft, cost: totalCost, requests };
   },
 };
+
+// ---------------------------------------------------------------------------
+// Activity-log rows: what the panel shows for each step above
+// ---------------------------------------------------------------------------
+//
+// Everything below builds a log row. None of it changes what is sent to
+// Anthropic or what comes back, which is why it sits here rather than
+// inside run(): the steps above should read as the pattern, and this is
+// the commentary on them.
+//
+// Same arrangement as the other patterns, deliberately. A reader who
+// has seen one should recognise the rest.
+
+function logLoopStart(log: Logger): void {
+  log.info(
+    `Starting evaluator loop · up to ${MAX_ROUNDS} rounds`,
+    {
+      criteria: CRITERIA,
+      note:
+        "Each round is two requests: one to write, one to judge. The " +
+        "criteria are specific enough to fail — an evaluator asked " +
+        "'is this good?' says yes, and the loop becomes ceremony.",
+    },
+    {
+      actor: "app",
+      because: "this pattern drafts and critiques before answering",
+    },
+  );
+}
+
+function logDraftRequest(
+  log: Logger,
+  lastVerdict: Verdict | null,
+  round: number,
+  draftRequest: Anthropic.MessageCreateParams,
+): void {
+  log.api(
+    round === 1
+      ? `Round ${round}: writing the first draft`
+      : `Round ${round}: rewriting after ${lastVerdict?.failed.length} failure(s)`,
+    {
+      round,
+      request: draftRequest,
+      ...(round > 1 && {
+        note:
+          "The previous draft and its critique are in this request's " +
+          "system prompt, which is why the input is larger than last " +
+          "round. Each rejection makes the next attempt cost more.",
+      }),
+    },
+    {
+      direction: "out",
+      iteration: round,
+      actor: "app",
+      because:
+        round === 1
+          ? "the loop needs something to evaluate"
+          : "the previous draft failed review",
+    },
+  );
+}
+
+function logDraftResponse(
+  log: Logger,
+  draft: string,
+  round: number,
+  draftResponse: Anthropic.Message,
+  draftElapsed: number,
+  draftUsage: UsageSummary,
+): void {
+  log.api(
+    `Draft ${round} · ${draftUsage.totalInput} in / ${draftUsage.output} out · ` +
+      `${formatCost(draftUsage.cost)} · ${draftElapsed}ms`,
+    {
+      round,
+      elapsed_ms: draftElapsed,
+      estimated_cost: formatCost(draftUsage.cost),
+      // What caching did, in words. The raw cache_read and
+      // cache_write numbers are the ones in the documentation, but
+      // they do not say which of three states this request was in,
+      // and the three look similar until you know what to compare.
+      caching: {
+        hit_rate: `${Math.round(draftUsage.cacheHitRate * 100)}%`,
+        read_from_cache: draftUsage.cacheRead,
+        written_to_cache: draftUsage.cacheWrite,
+        fresh: draftUsage.input,
+        what_happened: describeCacheOutcome(draftUsage),
+      },
+      // The draft itself. Comparing round one with round three is
+      // the most direct way to see whether the loop improved
+      // anything or merely reworded it.
+      draft,
+      response: {
+        model: draftResponse.model,
+        stop_reason: draftResponse.stop_reason,
+        usage: draftResponse.usage,
+      },
+    },
+    {
+      direction: "in",
+      iteration: round,
+      actor: "claude",
+      because: `the generator produced draft ${round}`,
+    },
+  );
+}
+
+function logDraftTruncated(log: Logger, round: number): void {
+  log.error(
+    `Draft ${round} was truncated at ${DRAFT_MAX_TOKENS} tokens`,
+    {
+      note:
+        "The evaluator will judge an incomplete answer and will " +
+        "probably fail it on 'complete' — which is correct, but " +
+        "the cause is the cap, not the generator.",
+    },
+    {
+      iteration: round,
+      actor: "claude",
+      because: "the draft reached max_tokens before finishing",
+    },
+  );
+}
+
+function logEvalRequest(
+  log: Logger,
+  round: number,
+  evalRequest: Anthropic.MessageCreateParams,
+): void {
+  log.api(
+    `Round ${round}: evaluating the draft`,
+    {
+      round,
+      request: evalRequest,
+      note:
+        "A separate call with a different system prompt. The same " +
+        "model asked to review its own work in one turn defends the " +
+        "draft; a fresh call reads it as someone else's.",
+    },
+    {
+      direction: "out",
+      iteration: round,
+      actor: "app",
+      because: "the draft needs judging before it can be returned",
+    },
+  );
+}
+
+function logVerdictUnparseable(log: Logger, round: number): void {
+  log.warn(
+    "The evaluator returned nothing parseable — accepting the draft",
+    {
+      note:
+        "Treated as a pass. Retrying would cost another two " +
+        "requests with no reason to expect a different outcome.",
+    },
+    {
+      iteration: round,
+      actor: "app",
+      because: "the verdict did not match the schema",
+    },
+  );
+}
+
+function logVerdict(
+  log: Logger,
+  round: number,
+  evalElapsed: number,
+  evalUsage: UsageSummary,
+  verdict: Verdict,
+): void {
+  log.api(
+    `Verdict ${round}: ${verdict.pass ? "PASS" : "FAIL"} · ` +
+      `${evalUsage.totalInput} in / ${evalUsage.output} out · ` +
+      `${formatCost(evalUsage.cost)} · ${evalElapsed}ms`,
+    {
+      round,
+      pass: verdict.pass,
+      failed_criteria: verdict.failed,
+      feedback: verdict.feedback,
+      elapsed_ms: evalElapsed,
+      estimated_cost: formatCost(evalUsage.cost),
+    },
+    {
+      direction: "in",
+      iteration: round,
+      actor: "claude",
+      because: verdict.pass
+        ? "the draft met every criterion"
+        : `the draft failed on ${verdict.failed.length} criterion/criteria`,
+    },
+  );
+}
+
+function logPassed(log: Logger, requests: number, round: number): void {
+  log.info(
+    `Passed on round ${round}`,
+    { rounds_used: round, requests },
+    {
+      iteration: round,
+      actor: "app",
+      because: "the evaluator accepted the draft",
+    },
+  );
+}
+
+function logRejected(log: Logger, round: number, verdict: Verdict): void {
+  log.info(
+    `Round ${round} rejected: ${verdict.failed.join(", ")}`,
+    {
+      failed: verdict.failed,
+      feedback: verdict.feedback,
+      note:
+        round < MAX_ROUNDS
+          ? "The feedback goes into the next draft's system prompt."
+          : `Round limit of ${MAX_ROUNDS} reached — the last draft is ` +
+            "returned as it stands.",
+    },
+    {
+      iteration: round,
+      actor: "claude",
+      because: "the evaluator rejected this draft",
+    },
+  );
+}
+
+function logNeverPassed(log: Logger, lastVerdict: Verdict | null): void {
+  log.warn(
+    `Returned without passing after ${MAX_ROUNDS} rounds`,
+    {
+      last_failed: lastVerdict?.failed,
+      last_feedback: lastVerdict?.feedback,
+      note:
+        "The loop gave up and returned the last draft. Usually this " +
+        "means the evaluator is asking for something the generator " +
+        "cannot produce — check whether the criteria are achievable " +
+        "for this question.",
+    },
+    {
+      actor: "app",
+      because: "the round limit was reached with the draft still failing",
+    },
+  );
+}
+
+function logEvaluatorSummary(
+  log: Logger,
+  totalCost: number,
+  requests: number,
+  round: number,
+  passed: boolean,
+): void {
+  log.info(
+    `Evaluator complete · ${round} round(s) · ${requests} requests · ` +
+      `${formatCost(totalCost)}`,
+    {
+      rounds: round,
+      requests,
+      passed,
+      total_cost: totalCost,
+      note:
+        "Two requests per round. Compare the first and last drafts in " +
+        "the rows above: if they say the same thing, the loop cost " +
+        "double for nothing, and the criteria are the thing to change.",
+    },
+    {
+      actor: "app",
+      because: "the loop finished",
+    },
+  );
+}
