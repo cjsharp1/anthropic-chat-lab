@@ -10,8 +10,8 @@
  *
  * One setup note: this is a command-line script with no browser attached, so
  * it cannot use the key you typed into the app's Settings dialog — that one
- * lives in the running web server's memory. Scripts in this folder read
- * ANTHROPIC_API_KEY from .env instead. See the Setup section of README.md.
+ * lives in the running web server's memory. Scripts in this folder read the
+ * selected provider key from .env instead. See README.md's Setup section.
  *
  * The one piece of real TypeScript learning here is how to read the response.
  * `response.content` is not a string. It is an array of content blocks, and
@@ -30,7 +30,12 @@ import {
   NotFoundError,
   RateLimitError,
 } from "@anthropic-ai/sdk";
-import { getClient, MissingKeyError, MODEL } from "../server/anthropic.js";
+import {
+  apiModelId,
+  getClient,
+  MissingKeyError,
+  MODEL,
+} from "../server/anthropic.js";
 
 /**
  * Sends one message and prints whatever text comes back.
@@ -44,7 +49,7 @@ async function main(): Promise<void> {
   //                the response mid-sentence, so do not set it meanly.
   //   messages   — the conversation so far. One user turn, in this case.
   const response = await getClient().messages.create({
-    model: MODEL,
+    model: apiModelId(MODEL),
     max_tokens: 1024,
     messages: [
       {
@@ -130,7 +135,8 @@ function explain(error: unknown): string {
     return [
       "No API key found.",
       "",
-      "This script reads ANTHROPIC_API_KEY from .env. A key you typed into",
+      "This script reads the provider key selected by AI_PROVIDER from .env.",
+      "A key you typed into",
       "the app's Settings dialog will not work here — that one is held in",
       "the running web server's memory, and this is a separate process.",
       "",
@@ -146,12 +152,12 @@ function explain(error: unknown): string {
     return [
       "Authentication failed (HTTP 401).",
       "",
-      "The API key was rejected. Things to check, in order:",
-      "  1. Is ANTHROPIC_API_KEY set in .env?   npm run check-env",
-      "  2. Is the key still valid?     https://console.anthropic.com/settings/keys",
-      "  3. Is the request going where you think? An ANTHROPIC_BASE_URL in",
-      "     your environment silently reroutes calls through a gateway, and",
-      "     the gateway will reject a key it does not know.",
+      "The selected provider rejected the key. Things to check:",
+      "  1. Is AI_PROVIDER and its matching key set in .env? npm run check-env",
+      "  2. For Anthropic, verify the key at console.anthropic.com/settings/keys.",
+      "  3. For Portkey, verify the Anthropic credential in its Model Catalog.",
+      "  4. Direct mode ignores ANTHROPIC_BASE_URL; Portkey mode uses it",
+      "     as the gateway URL (or defaults to https://api.portkey.ai).",
     ].join("\n");
   }
 

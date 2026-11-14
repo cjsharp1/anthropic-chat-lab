@@ -49,7 +49,7 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { getClient, MAX_TOKENS } from "../../anthropic.js";
+import { apiModelId, getClient, MAX_TOKENS } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
   describeCacheOutcome,
@@ -154,7 +154,7 @@ export const singleCall: Pattern = {
     warnIfBelowCacheMinimum(cachePlan, log);
 
     const request = {
-      model: producing,
+      model: apiModelId(producing),
       max_tokens: MAX_TOKENS,
       ...(system ? { system: withCachedSystem(system, cacheMode) } : {}),
       // Server tools only. Offering a client tool here would tell

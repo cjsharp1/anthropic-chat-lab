@@ -397,7 +397,7 @@
   <dl class="facts">
     <div class="fact">
       <dt>Source</dt>
-      <dd>17,701<small>lines of TypeScript</small></dd>
+      <dd>18,139<small>lines of TypeScript</small></dd>
     </div>
     <div class="fact">
       <dt>Patterns</dt>
@@ -405,7 +405,7 @@
     </div>
     <div class="fact">
       <dt>Tools</dt>
-      <dd>7<small>6 client, 1 server</small></dd>
+      <dd>8<small>7 client, 1 server</small></dd>
     </div>
     <div class="fact">
       <dt>Built from</dt>
@@ -418,7 +418,7 @@
     <p class="sec-note">The premise</p>
     <p>A normal chat window with an activity log beside it. The log shows every request that leaves the machine and every response that comes back — the actual JSON, not a summary — along with what each one cost and why it happened.</p>
     <p>You can switch the orchestration pattern, the models, the tools, the system prompt, caching, thinking and effort between messages, and watch the numbers change. It is built for people preparing for the Anthropic certifications, and for anyone who would rather see <code>stop_reason: "tool_use"</code> arrive than read about it.</p>
-    <p>It runs entirely on one machine. No database, no Docker, no hosting. The only network calls go to the Anthropic API.</p>
+    <p>It runs entirely on one machine. No database, no Docker, no hosting. Model requests go directly to Anthropic by default, or through Portkey when selected.</p>
 
     <div class="note">
       <span class="note-label">The measurement that makes the point</span>
@@ -502,7 +502,7 @@
       </table>
     </div>
 
-    <h3>Seven tools</h3>
+    <h3>Eight tools</h3>
     <div class="t-scroll">
       <table>
         <thead>
@@ -513,6 +513,7 @@
           <tr><td class="name">get_current_time</td><td class="mono">client</td><td>Something the model genuinely cannot know</td></tr>
           <tr><td class="name">notes</td><td class="mono">client</td><td>State across calls, and multi-step loops</td></tr>
           <tr><td class="name">search_docs</td><td class="mono">client</td><td>Retrieval over a local corpus</td></tr>
+          <tr><td class="name">search_web</td><td class="mono">client</td><td>Web search we run ourselves — compare its round trip with <code>web_search</code></td></tr>
           <tr><td class="name">read_file</td><td class="mono">client</td><td>Sandboxing — resolve the path first, then check it is still inside</td></tr>
           <tr><td class="name">flaky_service</td><td class="mono">client</td><td>Controllable failure. <code>failRate: 1</code> fails every time</td></tr>
           <tr><td class="name">web_search</td><td class="mono">server</td><td>Runs on Anthropic's infrastructure. No loop, no client code</td></tr>
@@ -561,7 +562,7 @@
     <ul class="plain">
       <li><code>tsc</code> fails with <code>TS18003</code> when <code>include</code> matches zero files — create the folders and one throwaway file first.</li>
       <li>NodeNext needs <code>.js</code> extensions on imports even though the file on disk is <code>.ts</code>.</li>
-      <li>A 401 is often routing, not credentials. The SDK reads <code>ANTHROPIC_BASE_URL</code>, so a company gateway silently intercepts the call.</li>
+      <li>A 401 is often routing, not credentials. This app pins its provider URL so <code>ANTHROPIC_BASE_URL</code> cannot silently reroute a request; choose Portkey explicitly with the provider setting.</li>
       <li>TypeScript does not know <code>process.exit()</code> ends the program, so narrow the key with an early <code>return</code> instead.</li>
     </ul>
   </section>
@@ -588,15 +589,15 @@
 
   <section>
     <h2>Current state</h2>
-    <p class="sec-note">Verified 13 November 2026</p>
+    <p class="sec-note">Verified 14 November 2026</p>
 
     <ul class="status">
       <li class="ok">typecheck passes — both halves</li>
       <li class="ok">dist/ populated</li>
-      <li>53 source files</li>
+      <li>54 source files</li>
       <li>17 API routes</li>
       <li>7 CLI scripts</li>
-      <li class="ok">audit-comments passes — 53 files, four folders</li>
+      <li class="ok">audit-comments passes — 54 files, four folders</li>
     </ul>
 
     <div class="note">

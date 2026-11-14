@@ -52,7 +52,7 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { getClient, MAX_TOKENS } from "../../anthropic.js";
+import { apiModelId, getClient, MAX_TOKENS } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
   describeCacheOutcome,
@@ -202,7 +202,7 @@ export const parallel: Pattern = {
         const started = Date.now();
 
         const branchRequest = {
-          model: producing,
+          model: apiModelId(producing),
           max_tokens: BRANCH_MAX_TOKENS,
           system: aspect.system,
           // Server tools go on each branch, the call that produces what
@@ -316,7 +316,7 @@ export const parallel: Pattern = {
     warnIfBelowCacheMinimum(cachePlan, log);
 
     const mergeRequest = {
-      model: producing,
+      model: apiModelId(producing),
       max_tokens: MAX_TOKENS,
       system: withCachedSystem(synthesisSystem),
       messages: withCachedHistory(messages, cacheMode),

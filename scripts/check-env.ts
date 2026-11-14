@@ -9,8 +9,8 @@
  * .env" is a fact about .env, not a diagnosis — the app may be working fine.
  *
  * What this is still good for is the case where you DID put a key in .env and
- * the app is not picking it up: a typo in the variable name, quotes around the
- * value, or a stray space all show up here immediately.
+ * the app is not picking it up: a wrong provider, variable name, quotes around
+ * the value, or a stray space all show up here immediately.
  *
  * It prints only the first 8 characters of the key. Never print a secret in
  * full — not to a terminal, not to a log file, and especially not on a
@@ -32,41 +32,100 @@ function checkEnvironment(): number {
   // process.env values are always string | undefined — there is no guarantee a
   // variable was set. Strict mode makes us handle the undefined case, which is
   // exactly the case we are testing for.
-  const key: string | undefined = process.env.ANTHROPIC_API_KEY;
+  const provider = process.env.AI_PROVIDER?.trim().toLowerCase() || "anthropic";
+  const keyName =
+    provider === "portkey" ? "PORTKEY_API_KEY" : "ANTHROPIC_API_KEY";
+  const key: string | undefined = process.env[keyName];
+  const configuredBaseURL = process.env.ANTHROPIC_BASE_URL?.trim();
+  const configuredPortkeyProvider =
+    process.env.PORTKEY_PROVIDER?.trim() || "anthropic";
+  const portkeyProvider = configuredPortkeyProvider.startsWith("@")
+    ? configuredPortkeyProvider.slice(1)
+    : configuredPortkeyProvider;
   const port: string | undefined = process.env.PORT;
 
   console.log("Checking environment...\n");
 
+  if (provider !== "anthropic" && provider !== "portkey") {
+    console.error('FAIL  AI_PROVIDER must be "anthropic" or "portkey".');
+    return 1;
+  }
+
+  if (
+    provider === "portkey" &&
+    !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(portkeyProvider)
+  ) {
+    console.error(
+      "FAIL  PORTKEY_PROVIDER must be a Model Catalog slug, optionally prefixed with '@'.",
+    );
+    return 1;
+  }
+
+  let gatewayHost: string | null = null;
+  if (provider === "portkey" && configuredBaseURL) {
+    try {
+      const baseURL = new URL(configuredBaseURL);
+      if (baseURL.protocol !== "https:") {
+        console.error("FAIL  ANTHROPIC_BASE_URL must use HTTPS for Portkey.");
+        return 1;
+      }
+      gatewayHost = baseURL.host;
+    } catch {
+      console.error(
+        "FAIL  ANTHROPIC_BASE_URL must be an absolute HTTPS URL for Portkey.",
+      );
+      return 1;
+    }
+  }
+
   if (!key) {
     // Missing entirely, or present but empty. Not a failure: the app asks for
     // a key in Settings when there is none here, so this is a normal setup.
-    console.log("none  ANTHROPIC_API_KEY is not set in .env.");
+    console.log(`none  ${keyName} is not set in .env.`);
     console.log("      That is fine. Start the app with `npm run dev` and");
-    console.log("      paste your key into Settings instead — it is held in");
+    console.log("      paste the selected provider's key into Settings — it is held in");
     console.log("      the server's memory until the server stops.");
     console.log("");
-    console.log("      To avoid retyping it after a restart, put it in .env");
-    console.log("      as:  ANTHROPIC_API_KEY=sk-ant-...");
-    console.log("      Get a key from https://console.anthropic.com/settings/keys");
+    console.log("      To avoid retyping after a restart, set AI_PROVIDER and");
+    console.log(`      ${keyName} in .env.`);
     console.log("");
     console.log(`PORT = ${port ?? "not set, server will default to 3000"}`);
+    if (gatewayHost !== null) {
+      console.log(`PASS  Custom Portkey gateway configured (${gatewayHost})`);
+    }
     return 0;
   }
 
   // Past this point TypeScript knows `key` is a string, not undefined.
 
-  if (!key.startsWith("sk-ant-")) {
-    // Catches a pasted placeholder, a quoted value, or another provider's key.
-    console.error("FAIL  ANTHROPIC_API_KEY does not look like an Anthropic key.");
-    console.error('      It should start with "sk-ant-" and have no quotes.');
+  if (
+    (provider === "anthropic" && !key.startsWith("sk-ant-")) ||
+    key.length < 20 ||
+    /\s/.test(key)
+  ) {
+    console.error(`FAIL  ${keyName} does not look like a valid key.`);
+    console.error(
+      provider === "anthropic"
+        ? '      Anthropic keys start with "sk-ant-"; check for quotes or spaces.'
+        : "      Check the Portkey key is complete and has no quotes or spaces.",
+    );
     console.error(`      Found a value starting: ${key.slice(0, 8)}...`);
-    console.error("      The app will reject it and ask for a key in Settings.");
     return 1;
   }
 
-  // Safe to show: the first 8 characters identify the key type, not the secret.
-  console.log(`PASS  ANTHROPIC_API_KEY loaded from .env  ${key.slice(0, 8)}...`);
+  // Show only a short prefix so the full credential never reaches the terminal.
+  console.log(`PASS  ${keyName} loaded from .env  ${key.slice(0, 8)}...`);
   console.log(`      (${key.length} characters total)`);
+  console.log(`PASS  AI_PROVIDER = ${provider}`);
+  if (provider === "portkey") {
+    console.log(`PASS  PORTKEY_PROVIDER = @${portkeyProvider}`);
+    console.log(
+      `      sent as header x-portkey-provider: @${portkeyProvider}, models as anthropic.<model-id>`,
+    );
+  }
+  if (gatewayHost !== null) {
+    console.log(`PASS  Custom Portkey gateway configured (${gatewayHost})`);
+  }
   console.log(`PASS  PORT = ${port ?? "not set, server will default to 3000"}`);
   console.log("\n.env looks good. The app starts with this key loaded, and");
   console.log("Settings shows it as coming from .env.");

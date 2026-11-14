@@ -6,7 +6,7 @@
  *               npm run try-effort -- --runs 3
  *
  * Like the other scripts here, this is a command-line process with no
- * browser, so it reads ANTHROPIC_API_KEY from .env — it cannot see a key
+ * browser, so it reads the provider key selected by AI_PROVIDER from .env — it cannot see a key
  * set in the app's Settings dialog. See the Setup section of README.md.
  *
  * Clicking through the app proves the setting is wired up. It does not
@@ -31,7 +31,7 @@
  * happens when the ceiling is too low for the level.
  */
 
-import { getClient } from "../server/anthropic.js";
+import { apiModelId, getClient } from "../server/anthropic.js";
 import { summariseUsage, formatCost } from "../server/usage.js";
 
 /** The levels, cheapest first. */
@@ -96,7 +96,7 @@ async function measure(
   const started = Date.now();
 
   const response = await getClient().messages.create({
-    model,
+    model: apiModelId(model),
     max_tokens: maxTokens,
     // Summarized, so the thinking is measurable rather than an empty
     // block. The tokens are spent either way — see server/thinking.ts.

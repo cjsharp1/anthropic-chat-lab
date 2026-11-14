@@ -57,7 +57,10 @@ function pricingFor(model: string): {
   output: number;
   cacheRead: number;
 } {
-  return PRICING[model] ?? PRICING["claude-opus-5-5"]!;
+  const providerNeutralModel = model.replace(/^@anthropic\//, "");
+  return (
+    PRICING[providerNeutralModel] ?? PRICING["claude-opus-5-5"]!
+  );
 }
 
 /** A flattened, named view of one response's token usage. */

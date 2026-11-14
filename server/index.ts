@@ -9,11 +9,11 @@
  *   2. Answers API calls    — /api/chat and /api/extract run a turn;
  *                            the rest report settings, tools and the
  *                            MCP connection
- *   3. Holds the API key    — see the note below
+ *   3. Holds the provider key — see the note below
  *
  * The third job is the one worth pausing on. The browser never talks to
- * Anthropic directly, and it never sees your API key. It talks to this server,
- * and this server talks to Anthropic. If the browser held the key, anyone who
+ * a model provider directly, and it never sees your API key. It talks to this server,
+ * and this server talks to Anthropic or Portkey. If the browser held the key, anyone who
  * opened DevTools could read it and spend your money. Putting a server in the
  * middle is not an architectural nicety — it is the only way to keep a key
  * secret in a web app.
@@ -44,6 +44,7 @@ import {
   getStatus as getKeyStatus,
   hasKey,
   setKey,
+  getProvider,
 } from "./api-key.js";
 import { MissingKeyError } from "./anthropic.js";
 import { makeLogger } from "./logger.js";
@@ -62,7 +63,11 @@ import {
 import { getModelOption, MODEL_OPTIONS, parseAssignment, ROLE_INFO } from "./models.js";
 import { parseThinkingDisplay, THINKING_OPTIONS } from "./thinking.js";
 import { DEFAULT_EFFORT, EFFORT_OPTIONS, parseEffort } from "./effort.js";
-import { SERVER_TOOLS, SERVER_TOOLS_BY_NAME } from "./tools/server-tools.js";
+import {
+  availableServerTools,
+  findServerTool,
+  hiddenServerToolNotices,
+} from "./tools/server-tools.js";
 import { CACHE_MODES, DEFAULT_CACHE_MODE, parseCacheMode } from "./caching.js";
 import { extractFields } from "./extract.js";
 import { toApiTools } from "./tools/api-format.js";
@@ -191,8 +196,7 @@ function explainError(error: unknown): ExplainedError {
     };
   }
 
-  // 401 — the key is missing, revoked, or being sent to something that does
-  // not recognise it. Retrying is pointless.
+  // 401 — the selected provider rejected the credential. Retrying is pointless.
   if (error instanceof AuthenticationError) {
     return {
       kind: "auth",
@@ -200,10 +204,9 @@ function explainError(error: unknown): ExplainedError {
       retryable: false,
       summary: "Authentication failed (401)",
       message:
-        "The API key was rejected. Open Settings and check the key, or " +
-        "paste a new one from console.anthropic.com. If the key is valid, " +
-        "check whether an ANTHROPIC_BASE_URL in your environment is " +
-        "routing the call somewhere unexpected.",
+        `The ${getProvider() === "portkey" ? "Portkey" : "Anthropic"} key was rejected. ` +
+        "Open Settings and check the key. For Portkey, confirm the gateway " +
+        "URL and Anthropic credential in its Model Catalog.",
     };
   }
 
@@ -267,7 +270,7 @@ function explainError(error: unknown): ExplainedError {
       retryable: true,
       summary: "Could not reach the API",
       message:
-        "Could not reach Anthropic. Check your network connection and " +
+        "Could not reach the selected provider. Check your network connection and " +
         "try again.",
     };
   }
@@ -342,21 +345,27 @@ app.get("/api/key-status", (_req, res) => {
 });
 
 /**
- * POST /api/key — set the key for this server process.
+ * POST /api/key — set the provider key for this server process.
  *
  * Validates the shape before storing, so an obviously-wrong paste is answered
- * here with a specific message rather than later with a 401 from Anthropic.
+ * here with a specific message rather than later with a provider 401.
  * A 400 carries the reason; the frontend shows it beside the input.
  */
 app.post("/api/key", (req, res) => {
-  const body = req.body as { key?: unknown };
+  const body = req.body as { key?: unknown; provider?: unknown };
 
   if (typeof body.key !== "string") {
     res.status(400).json({ error: "Expected a key as a string." });
     return;
   }
 
-  const problem = setKey(body.key);
+  const provider = body.provider ?? getProvider();
+  if (provider !== "anthropic" && provider !== "portkey") {
+    res.status(400).json({ error: "Choose Anthropic or Portkey." });
+    return;
+  }
+
+  const problem = setKey(body.key, provider);
 
   if (problem !== null) {
     res.status(400).json({ error: problem });
@@ -371,9 +380,8 @@ app.post("/api/key", (req, res) => {
 /**
  * DELETE /api/key — forget the key set through Settings.
  *
- * Falls back to an ANTHROPIC_API_KEY from .env when one exists, so this
- * undoes the Settings entry rather than disabling the app on a machine that
- * was already configured. The returned status says which case happened.
+ * Falls back to the selected provider's .env key when one exists, so this
+ * undoes a Settings entry rather than disabling a configured app.
  */
 app.delete("/api/key", (_req, res) => {
   clearKey();
@@ -500,7 +508,8 @@ app.get("/api/tools", (_req, res) => {
       // Server tools are listed with the rest, because from the Tools
       // tab's point of view they are the same decision: may Claude use
       // this or not. The badge and the note are where they differ.
-      ...SERVER_TOOLS.map((tool) => ({
+      // Only those the current provider can use: see `notices` below.
+      ...availableServerTools().map((tool) => ({
         name: tool.name,
         description: tool.description,
         executedBy: "server" as const,
@@ -525,6 +534,10 @@ app.get("/api/tools", (_req, res) => {
           "answer back in a tool_result.",
       })),
     ],
+    // Why a tool is missing from the list, when the provider hides one.
+    // Without this, a tool that vanished on switching to Portkey would
+    // look like a bug.
+    notices: hiddenServerToolNotices(),
   });
 });
 
@@ -622,8 +635,7 @@ app.post("/api/extract", async (req, res) => {
       send({
         type: "error",
         message:
-          "No API key is set. Open Settings and paste your Anthropic API " +
-          "key to start. You can get one from console.anthropic.com.",
+          "No API key is set. Open Settings and choose a provider key to start.",
       });
       res.end();
       return;
@@ -747,8 +759,7 @@ app.post("/api/chat", async (req, res) => {
       send({
         type: "error",
         message:
-          "No API key is set. Open Settings and paste your Anthropic API " +
-          "key to start. You can get one from console.anthropic.com.",
+          "No API key is set. Open Settings and choose a provider key to start.",
       });
       res.end();
       return;
@@ -817,9 +828,11 @@ app.post("/api/chat", async (req, res) => {
     // Plus any server tools that are ticked. They go in the SAME array
     // — from the API's point of view there is one tools list, and
     // whether Anthropic or this server executes a given entry is
-    // decided by its type, not by where it sits.
+    // decided by its type, not by where it sits. findServerTool skips
+    // any the provider cannot use, so a stale browser tab that still
+    // asks for web_search through Portkey does not get a 400.
     const activeServerTools = requested
-      .map((name) => SERVER_TOOLS_BY_NAME.get(name))
+      .map((name) => findServerTool(name))
       .filter((tool): tool is NonNullable<typeof tool> => Boolean(tool));
 
     const allDefinitions = [
@@ -865,7 +878,7 @@ app.post("/api/chat", async (req, res) => {
     // Every tool that could be offered, which is what the denominator
     // has to count: local, borrowed over MCP, and the server tools
     // Anthropic runs. TOOLS alone was only the first of the three.
-    const offerable = getActiveTools().length + SERVER_TOOLS.length;
+    const offerable = getActiveTools().length + availableServerTools().length;
 
     if (offerable > 0) {
       // How much of the request the tool definitions account for. This is
