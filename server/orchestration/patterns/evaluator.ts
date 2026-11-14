@@ -53,7 +53,7 @@
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type Anthropic from "@anthropic-ai/sdk";
-import { getClient } from "../../anthropic.js";
+import { apiModelId, getClient } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
   describeCacheOutcome,
@@ -260,7 +260,7 @@ export const evaluator: Pattern = {
       warnIfBelowCacheMinimum(cachePlan, log);
 
       const draftRequest = {
-        model: producing,
+        model: apiModelId(producing),
         max_tokens: DRAFT_MAX_TOKENS,
         system: withCachedSystem(generatorSystem),
         // Server tools go on the generator, the call that produces what
@@ -340,7 +340,7 @@ export const evaluator: Pattern = {
         // than the writer passes work the writer should have been
         // told to redo. Change it in Settings and watch the failure
         // rate drop for the wrong reason.
-        model: judging,
+        model: apiModelId(judging),
         max_tokens: VERDICT_MAX_TOKENS,
         system: EVALUATOR_SYSTEM,
         messages: [

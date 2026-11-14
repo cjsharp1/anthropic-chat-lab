@@ -51,7 +51,7 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { getClient, MAX_TOKENS } from "../../anthropic.js";
+import { apiModelId, getClient, MAX_TOKENS } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
   describeCacheOutcome,
@@ -253,7 +253,7 @@ export const routing: Pattern = {
 
     // Built once, then both logged and sent.
     const routeRequest = {
-      model: deciding,
+      model: apiModelId(deciding),
       max_tokens: ROUTE_MAX_TOKENS,
       system: CLASSIFIER_SYSTEM,
       // Just the question. No system prompt from the user, no history:
@@ -328,7 +328,7 @@ export const routing: Pattern = {
     warnIfBelowCacheMinimum(cachePlan, log);
 
     const answerRequest = {
-      model: producing,
+      model: apiModelId(producing),
       max_tokens: MAX_TOKENS,
       system: withCachedSystem(answerSystem),
       // Server tools go on the specialist answer, the call that produces what

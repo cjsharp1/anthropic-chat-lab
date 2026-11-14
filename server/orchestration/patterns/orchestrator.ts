@@ -87,7 +87,7 @@
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type Anthropic from "@anthropic-ai/sdk";
-import { getClient, MAX_TOKENS } from "../../anthropic.js";
+import { apiModelId, getClient, MAX_TOKENS } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
   describeCacheOutcome,
@@ -257,7 +257,7 @@ export const orchestrator: Pattern = {
     // evaluator.ts. Writing the request out twice is how the logged
     // model came to say Opus while the call actually used Haiku.
     const planRequest = {
-      model: deciding,
+      model: apiModelId(deciding),
       max_tokens: PLAN_MAX_TOKENS,
       system: PLANNER_SYSTEM,
       messages,
@@ -317,7 +317,7 @@ export const orchestrator: Pattern = {
         const started = Date.now();
 
         const workerRequest = {
-          model: producing,
+          model: apiModelId(producing),
           max_tokens: WORKER_MAX_TOKENS,
           // The length instruction matters more than the token cap.
           // Without it a worker writes until something stops it, and
@@ -446,7 +446,7 @@ export const orchestrator: Pattern = {
     warnIfBelowCacheMinimum(cachePlan, log);
 
     const synthRequest = {
-      model: producing,
+      model: apiModelId(producing),
       max_tokens: MAX_TOKENS,
       system: withCachedSystem(synthesisSystem),
       messages: withCachedHistory(messages, cacheMode),

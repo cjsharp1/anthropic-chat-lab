@@ -39,7 +39,7 @@
 
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { getClient } from "./anthropic.js";
+import { apiModelId, getClient } from "./anthropic.js";
 import { summariseUsage } from "./usage.js";
 import type { Logger } from "./logger.js";
 
@@ -117,7 +117,7 @@ export async function extractFields(
   // drifts from what actually went over the wire. This app had that bug
   // once already; the fix is to have exactly one object.
   const request = {
-    model,
+    model: apiModelId(model),
     max_tokens: 500,
     system:
       "Extract the requested fields from the user's message. Do not " +

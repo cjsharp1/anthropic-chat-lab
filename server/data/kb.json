@@ -139,14 +139,14 @@
   },
   {
     "id": "base-url-routing",
-    "title": "ANTHROPIC_BASE_URL and unexpected 401s",
+    "title": "Gateway routing and unexpected 401s",
     "tags": [
       "401",
       "gateway",
       "configuration",
       "debugging"
     ],
-    "body": "The SDK reads ANTHROPIC_BASE_URL from the environment and will silently route every request there. On a machine configured to use a company LLM gateway, a perfectly valid API key then returns 401, because the gateway expects its own credentials. The error names the gateway rather than mentioning base URLs, so the cause is not obvious. If a known-good key is rejected, check the environment before the key. Passing baseURL explicitly to the client constructor pins it to the public API and ignores whatever the environment says."
+    "body": "The SDK can read ANTHROPIC_BASE_URL from the environment and silently route requests to a gateway. A key for a different provider then returns 401 because the gateway expects its own credentials. This app passes baseURL explicitly, so ambient values cannot silently reroute direct Anthropic requests. Select Portkey in Settings or set AI_PROVIDER=portkey deliberately; in Portkey mode ANTHROPIC_BASE_URL selects the gateway (default https://api.portkey.ai). Use the Portkey API key and configure the Anthropic credential in Portkey's Model Catalog. Model IDs use @<PORTKEY_PROVIDER>/<model>; set PORTKEY_PROVIDER to the provider slug configured in that catalog."
   },
   {
     "id": "token-counting",

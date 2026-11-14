@@ -47,7 +47,7 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { getClient, MAX_TOKENS } from "../../anthropic.js";
+import { apiModelId, getClient, MAX_TOKENS } from "../../anthropic.js";
 import { warnToolsIgnored } from "../no-tools.js";
 import {
   describeCacheOutcome,
@@ -169,7 +169,7 @@ export const chaining: Pattern = {
       // user never sees, not prose. This was on the main model until
       // the orchestrator's planner was measured against Haiku and
       // found no worse — the same reasoning applies here.
-      model: deciding,
+      model: apiModelId(deciding),
       max_tokens: PLAN_MAX_TOKENS,
       system: PLANNER_SYSTEM,
       messages,
@@ -254,7 +254,7 @@ export const chaining: Pattern = {
     warnIfBelowCacheMinimum(cachePlan, log);
 
     const writeRequest = {
-      model: producing,
+      model: apiModelId(producing),
       max_tokens: MAX_TOKENS,
       system: withCachedSystem(writerSystem),
       // Server tools go on the writing call, the call that produces what

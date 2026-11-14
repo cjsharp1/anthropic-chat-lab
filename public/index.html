@@ -85,7 +85,7 @@
   <div id="api-key-banner" hidden>
     <strong>No API key set.</strong>
     <span>
-      This app needs an Anthropic API key before it can send anything.
+      Choose Anthropic or Portkey and add its API key in Settings before sending.
     </span>
     <button type="button" id="api-key-banner-open">Add a key</button>
   </div>
@@ -388,8 +388,13 @@
         <h3 class="setting-group-title">API key</h3>
 
         <div class="setting">
-          <label for="api-key-input">Anthropic API key</label>
+          <label for="api-provider">API provider</label>
+          <select id="api-provider">
+            <option value="anthropic">Anthropic direct</option>
+            <option value="portkey">Portkey</option>
+          </select>
 
+          <label for="api-key-input" id="api-key-label">Anthropic API key</label>
           <div id="api-key-row">
             <!-- type="password" so the key is not readable on a
                  projector or in a screen share. -->
@@ -418,15 +423,18 @@
             are for.
           </p>
 
+          <p class="setting-note" id="api-key-provider-instructions"></p>
+
           <p class="setting-note">
-            Get a key from
-            <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">
-              console.anthropic.com</a>.
+            Get the selected provider's key from
+            <a
+              id="api-key-provider-link"
+              href="https://console.anthropic.com/settings/keys"
+              target="_blank"
+              rel="noopener"
+            >console.anthropic.com</a>.
             It is held in the server's memory for as long as the server
-            runs, and is never stored in your browser — so it is gone
-            when you stop the server. To skip retyping it, put
-            <code>ANTHROPIC_API_KEY</code> in a <code>.env</code> file
-            instead; that file is git-ignored.
+            runs, and is never stored in your browser.
           </p>
         </div>
       </div>
@@ -448,6 +456,8 @@
         Only ticked tools are sent to Claude. A tool that is not sent cannot
         be called, because the model is never told it exists.
       </p>
+
+      <p id="tool-notice" class="setting-help" hidden></p>
 
       <div id="tool-actions">
         <button type="button" id="tools-all" class="link-button">Select all</button>

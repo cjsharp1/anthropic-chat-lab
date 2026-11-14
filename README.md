@@ -13,8 +13,9 @@ Built for people preparing for the Anthropic certifications, and for
 anyone who would rather see `stop_reason: "tool_use"` arrive than read
 about it.
 
-It runs entirely on your machine. Nothing is hosted, nothing is shared,
-and the only network calls are to the Anthropic API.
+It runs entirely on your machine. Nothing is hosted, nothing is shared.
+Model requests go directly to Anthropic by default, or through Portkey
+when you select it.
 
 📄 **[Project overview](https://cjsharp1.github.io/anthropic-chat-lab/)**
 — a one-page tour of the architecture, the patterns and what each one
@@ -27,7 +28,7 @@ costs, without cloning anything.
 | | |
 |---|---|
 | **Node.js** | 20 or newer. Developed on 24.4.1 — check with `node --version` |
-| **An API key** | From [console.anthropic.com](https://console.anthropic.com/settings/keys). Starts with `sk-ant-`. You paste it into the app itself — there is no config file to edit |
+| **An API key** | An Anthropic key, or a Portkey key after adding Anthropic credentials to Portkey. Paste the selected provider's key into the app |
 | **About $2** | Enough for weeks of learning. Most turns cost a fraction of a cent; the figure in the header tells you as you go |
 
 No database, no Docker, no build step to watch. One `npm install` and
@@ -51,13 +52,11 @@ npm install
 npm run dev
 ```
 
-**3. Open http://localhost:3000 and paste your API key.**
+**3. Open http://localhost:3000, choose a provider in Settings, and paste its API key.**
 
 The app opens with a banner saying no key is set. Click **Add a key**,
-paste your key from
-[console.anthropic.com](https://console.anthropic.com/settings/keys),
-and press Save. The banner disappears and you can send your first
-message.
+choose **Anthropic direct** or **Portkey**, paste that provider's key,
+and press Save. The banner disappears and you can send your first message.
 
 That is the whole setup. There is no `.env` to create.
 
@@ -66,10 +65,10 @@ That is the whole setup. There is no `.env` to create.
 Worth knowing, because the app is partly about this.
 
 The key is sent to the small Express server in `server/`, which holds
-it **in memory** and uses it to call Anthropic on your behalf. It is
+it **in memory** and uses it to call the selected provider on your behalf. It is
 never stored in your browser — not in `localStorage`, not in a cookie
 — and no endpoint will give it back. The browser can only ask whether
-a key is set and see a masked hint like `sk-ant-…7gAA`.
+a key is set and see a masked provider label and last four characters.
 
 That is the same reason the chat itself goes through a server rather
 than calling Anthropic from the page: a key in frontend code is a key
@@ -82,7 +81,43 @@ For a laptop running a teaching app, retyping it is cheaper than
 having a secret written somewhere that backups and sync tools might
 pick up.
 
-### Optional: skip retyping the key
+#### Using Portkey
+
+Add your Anthropic credential in Portkey's
+[Model Catalog](https://app.portkey.ai/model-catalog/providers), then
+choose **Portkey** in Settings and paste your Portkey API key. The
+Anthropic credential stays in Portkey; this app holds only the Portkey
+key in server memory. Requests use Portkey's Anthropic model routing.
+
+To load the Portkey key from `.env` instead, set:
+
+```
+AI_PROVIDER=portkey
+PORTKEY_API_KEY=...
+```
+
+For a custom Portkey gateway, set `ANTHROPIC_BASE_URL` in `.env` to that
+gateway's HTTPS URL. The app uses it only in Portkey mode; direct
+Anthropic requests continue to use Anthropic's public API.
+
+In this mode, the Portkey key is used instead of `ANTHROPIC_API_KEY`.
+Model IDs are sent as `anthropic.<model-id>`, with an
+`x-portkey-provider: @<PORTKEY_PROVIDER>` header that tells Portkey which
+provider to route to. Set `PORTKEY_PROVIDER` to the slug shown for your
+provider in the Portkey Model Catalog; it defaults to `anthropic` and
+accepts an optional leading `@`. The app sets that header itself, so
+`ANTHROPIC_CUSTOM_HEADERS` is not needed.
+
+The `anthropic.` naming is what a Vertex-backed provider expects. A
+Portkey provider connected straight to Anthropic may need plain model
+IDs instead, which this app does not currently support.
+
+In Portkey mode the server tool `web_search` is hidden from the Tools
+tab and never sent: Vertex AI does not accept the version this app uses,
+and an organisation policy can block web search there entirely. Use
+`search_web` instead, a client tool this server runs itself.
+
+## Optional: skip retyping the key
 
 If re-entering the key each session annoys you, put it in a `.env`
 file and the server will load it at startup instead:
@@ -96,7 +131,11 @@ Copy-Item .env.example .env
 ```
 
 ```
+AI_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-...
+# For Portkey instead:
+# AI_PROVIDER=portkey
+# PORTKEY_API_KEY=...
 PORT=3000
 ```
 
@@ -114,12 +153,12 @@ npm run check-env
 That only inspects `.env` — it cannot see a key you typed into
 Settings, because that one lives in the running server's memory.
 
-### If your machine has a company API gateway
+### Gateway routing
 
-If `ANTHROPIC_BASE_URL` is set in your environment, the SDK will use it
-and you may get a `401` with a key that is otherwise fine. This app
-pins `baseURL` to `https://api.anthropic.com` in `server/anthropic.ts`
-to bypass that. If you *want* to go through a gateway, change it there.
+The app ignores ambient `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`
+values for direct Anthropic requests, so a shell-configured gateway
+cannot silently receive them. In Portkey mode, `ANTHROPIC_BASE_URL`
+selects the gateway endpoint (default `https://api.portkey.ai`).
 
 ---
 
@@ -266,7 +305,7 @@ same exchange appears twice — once as a tool call here, once as a
 `tools/call` there.
 
 
-Six run on your machine, one runs on Anthropic's.
+Seven run on your machine, one runs on Anthropic's.
 
 | Tool | Where it runs | What it teaches |
 |---|---|---|
@@ -274,6 +313,7 @@ Six run on your machine, one runs on Anthropic's.
 | `get_current_time` | client | Something the model genuinely cannot know. |
 | `notes` | client | State across calls, and multi-step loops. |
 | `search_docs` | client | Retrieval over a local corpus. |
+| `search_web` | client | Web search this server runs, via DuckDuckGo Lite (scraped, no key — fragile by design). The client-tool twin of `web_search`, and the one that works when a Portkey/Vertex policy blocks `web_search`. |
 | `read_file` | client | Sandboxing. Resolves the path first, then checks it is still inside the sandbox — the order that defeats `../`. |
 | `flaky_service` | client | Controllable failure. `failRate: 1` fails every time, so error handling can be demonstrated on purpose. |
 | `web_search` | **server** | Runs on Anthropic's infrastructure. No loop, no client code — the result arrives in the same response, with `stop_reason: "end_turn"`. |
@@ -352,7 +392,8 @@ and change one thing at a time.
 6. **Failure.** `flaky_service` with `failRate: 1`. Watch the error come
    back as a `tool_result` with `is_error: true`, and Claude react to it.
 7. **Client vs server tools.** Ask something needing `web_search`. No
-   loop, no client execution, `end_turn` straight away.
+   loop, no client execution, `end_turn` straight away. Then ask the
+   same with `search_web`: `tool_use`, our fetch, a second request.
 8. **Patterns, measured.** One question through Single call, then
    Chaining, then Orchestrator. Compare cost and latency. Decide whether
    the expensive one earned it.
@@ -509,9 +550,9 @@ for current numbers.
 
 ## Security notes
 
-The key is held in the server's memory and is never sent to the
+The provider key is held in the server's memory and is never sent to the
 browser: the only key endpoint that returns anything returns a masked
-hint (`sk-ant-…7gAA`) and a yes/no. It is not written to disk, and not
+provider label, the last four characters, and a yes/no. It is not written to disk, and not
 stored in `localStorage`. An optional git-ignored `.env` can supply it
 at startup instead. The client `tsconfig` sets `"types": []` so server
 globals cannot be referenced from frontend code. Model output is rendered with

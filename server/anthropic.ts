@@ -1,5 +1,5 @@
 /**
- * anthropic.ts — the one place this project talks to Anthropic from.
+ * anthropic.ts — the one place this project creates a Claude SDK client.
  *
  * Everything that calls Claude imports `client` from here. Two reasons:
  *
@@ -17,7 +17,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import { getKey } from "./api-key.js";
+import { getKey, getProvider, type ApiProvider } from "./api-key.js";
 
 /**
  * The model every call in this project uses.
@@ -49,22 +49,23 @@ export const MAX_TOKENS = 16000;
 export class MissingKeyError extends Error {
   constructor() {
     super(
-      "No API key is set. Open Settings and paste your Anthropic API key to start.",
+      "No API key is set. Open Settings and paste the selected provider's key to start.",
     );
     this.name = "MissingKeyError";
   }
 }
 
 /**
- * The cached SDK client, and the key it was built with.
+ * The cached SDK client and the provider/key pair it was built with.
  *
- * Caching on the key rather than building once at import time is what makes a
- * runtime key change possible. The pool is still shared across every request
- * that uses the same key — a new client is constructed only when the key
- * actually changes, which happens when someone saves one in Settings.
+ * Caching on the provider/key pair rather than building once at import time
+ * makes runtime key and provider changes possible. The pool is still shared
+ * for each configuration; a new client is built only when that pair changes.
  */
 let cached: Anthropic | null = null;
 let cachedKey: string | null = null;
+let cachedProvider: ApiProvider | null = null;
+let cachedBaseURL: string | null = null;
 
 /**
  * Returns an SDK client for the current key, building one if needed.
@@ -76,36 +77,108 @@ let cachedKey: string | null = null;
  * key existed at import time, which on a fresh clone is none at all.
  *
  * The caching below means that costs nothing: the same client comes
- * back every time until the key actually changes.
+ * back every time until the selected provider or key changes.
  *
- * Both settings below are passed explicitly rather than left to the SDK's
- * environment detection. Many corporate machines reach Claude through an LLM
- * gateway, configured in the shell environment as ANTHROPIC_BASE_URL and
- * ANTHROPIC_AUTH_TOKEN. The SDK picks those up automatically, so on such a
- * machine this app would silently route through the gateway — and a 401 from
- * a gateway that does not recognise your key looks exactly like a bad key.
+ * Provider settings are passed explicitly rather than left to the SDK's
+ * environment detection. Portkey is selected deliberately in Settings or
+ * with AI_PROVIDER. The configured ANTHROPIC_BASE_URL is used only in
+ * Portkey mode; direct Anthropic calls ignore it. Portkey mode also sends
+ * the `x-portkey-provider` header, built from PORTKEY_PROVIDER.
  *
  * For a training app we want the plain, documented path instead, so that what
  * you see here matches the certification material and the official examples
  * line for line.
  *
- *   baseURL  pinned to the public API, ignoring any ANTHROPIC_BASE_URL
- *   apiKey   taken from api-key.ts only, ignoring any ANTHROPIC_AUTH_TOKEN
+ *   baseURL  chosen from the selected provider
+ *   apiKey   taken from api-key.ts only, never from SDK environment detection
  */
 export function getClient(): Anthropic {
   const key = getKey();
+  const provider = getProvider();
 
   if (key === null) throw new MissingKeyError();
 
-  // Reuse the existing client whenever the key has not changed. This is the
-  // normal path: one client for the whole session.
-  if (cached !== null && cachedKey === key) return cached;
+  const baseURL =
+    provider === "portkey" ? getPortkeyBaseURL() : "https://api.anthropic.com";
+
+  if (
+    cached !== null &&
+    cachedKey === key &&
+    cachedProvider === provider &&
+    cachedBaseURL === baseURL
+  ) {
+    return cached;
+  }
+
+  // Portkey picks the upstream provider from this header. Setting it here,
+  // rather than through ANTHROPIC_CUSTOM_HEADERS (which the SDK also reads),
+  // keeps the routing visible in this file.
+  const defaultHeaders: Record<string, string> =
+    provider === "portkey"
+      ? { "x-portkey-provider": `@${getPortkeyProviderSlug()}` }
+      : {};
 
   cached = new Anthropic({
-    baseURL: "https://api.anthropic.com",
+    baseURL,
     apiKey: key,
+    defaultHeaders,
   });
   cachedKey = key;
+  cachedProvider = provider;
+  cachedBaseURL = baseURL;
 
   return cached;
+}
+
+/** Uses the configured Portkey gateway, falling back to Portkey's public URL. */
+function getPortkeyBaseURL(): string {
+  const configured = process.env.ANTHROPIC_BASE_URL?.trim();
+  if (!configured) return "https://api.portkey.ai";
+
+  let url: URL;
+  try {
+    url = new URL(configured);
+  } catch {
+    throw new Error(
+      "ANTHROPIC_BASE_URL must be an absolute HTTPS URL when using Portkey.",
+    );
+  }
+
+  if (url.protocol !== "https:") {
+    throw new Error(
+      "ANTHROPIC_BASE_URL must use HTTPS when using Portkey.",
+    );
+  }
+
+  return configured.replace(/\/+$/, "");
+}
+
+/**
+ * Portkey names a Vertex-hosted Claude model `anthropic.<model-id>`, and
+ * routes it to the provider named in the `x-portkey-provider` header set in
+ * getClient(). Keep the app's model ids provider-neutral for pricing and the
+ * UI, and add the prefix only at the API boundary.
+ *
+ * The other Portkey form, `@<provider>/<model-id>`, is deliberately not used:
+ * a Vertex-backed gateway rejects it with "messages is not supported by
+ * vertex-ai", even when the header is present.
+ */
+export function apiModelId(model: string): string {
+  if (getProvider() !== "portkey" || model.startsWith("anthropic.")) {
+    return model;
+  }
+
+  return `anthropic.${model}`;
+}
+
+/** Returns the provider slug configured in Portkey's Model Catalog, without the "@". */
+function getPortkeyProviderSlug(): string {
+  const configured = process.env.PORTKEY_PROVIDER?.trim() || "anthropic";
+  const slug = configured.startsWith("@") ? configured.slice(1) : configured;
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(slug)) {
+    throw new Error(
+      "PORTKEY_PROVIDER must be a Model Catalog provider slug, optionally prefixed with '@'.",
+    );
+  }
+  return slug;
 }

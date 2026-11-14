@@ -16,6 +16,12 @@
  * runs the search, reads the results, and continues generating — all
  * inside one request.
  *
+ * Through Portkey the app reaches Claude on Vertex AI, where this tool
+ * does not work: Vertex accepts only the older `web_search_20250305`,
+ * and an organisation policy can block web search outright. So with
+ * Portkey selected it is hidden — see availableServerTools below — and
+ * tools/definitions/search-web.ts does the job as a client tool.
+ *
  * The clearest evidence is `stop_reason`. A client tool produces
  * "tool_use" and the conversation stops dead until we answer it. A
  * server tool produces "end_turn": the work happened during the
@@ -41,6 +47,7 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
+import { getProvider } from "../api-key.js";
 
 /** A server tool the UI can offer. */
 export interface ServerTool {
@@ -59,6 +66,12 @@ export interface ServerTool {
    * generic "Anthropic runs it".
    */
   note: string;
+  /**
+   * Why this tool cannot work through Portkey, or null if it can. A tool
+   * with a reason here is left out of the Tools tab and of every request
+   * while Portkey is the provider, and the reason is shown instead.
+   */
+  unavailableThroughPortkey: string | null;
 }
 
 /**
@@ -95,13 +108,42 @@ export const SERVER_TOOLS: ServerTool[] = [
       "produces 'end_turn' and the search happened inside the first " +
       "one. Searches are billed separately from tokens and appear in " +
       `usage.server_tool_use, capped at ${MAX_SEARCHES} per request.`,
+    unavailableThroughPortkey:
+      "web_search is hidden: through Portkey, Claude runs on Vertex AI, " +
+      "where an organisation policy can block it (and the version this " +
+      "app sends is not accepted there). Use search_web instead — this " +
+      "server runs that search itself.",
   },
 ];
 
-/** Server tools by name, for the route to look up what is enabled. */
-export const SERVER_TOOLS_BY_NAME = new Map<string, ServerTool>(
-  SERVER_TOOLS.map((tool) => [tool.name, tool]),
-);
+/**
+ * The server tools that can work with the current provider.
+ *
+ * A function rather than a filtered constant, for the same reason as
+ * getActiveTools() in registry.ts: the provider can change in Settings
+ * while the server runs, so a list captured at startup would be wrong.
+ *
+ * SERVER_TOOLS itself stays the full list. The MCP client reads it to
+ * reserve these names, and a name stays taken even while its tool is
+ * hidden.
+ */
+export function availableServerTools(): ServerTool[] {
+  if (getProvider() !== "portkey") return SERVER_TOOLS;
+  return SERVER_TOOLS.filter((tool) => tool.unavailableThroughPortkey === null);
+}
+
+/** Finds a server tool by name, if the current provider can use it. */
+export function findServerTool(name: string): ServerTool | undefined {
+  return availableServerTools().find((tool) => tool.name === name);
+}
+
+/** Why each hidden server tool is hidden, for the Tools tab. */
+export function hiddenServerToolNotices(): string[] {
+  if (getProvider() !== "portkey") return [];
+  return SERVER_TOOLS.flatMap((tool) =>
+    tool.unavailableThroughPortkey === null ? [] : [tool.unavailableThroughPortkey],
+  );
+}
 
 /**
  * Pulls the server-tool counts out of a response's usage.

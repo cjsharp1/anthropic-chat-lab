@@ -69,6 +69,9 @@ const toolList = document.getElementById(
 const toolCount = document.getElementById(
   "tool-count",
 ) as HTMLElement;
+const toolNotice = document.getElementById(
+  "tool-notice",
+) as HTMLElement;
 export const toolsAllButton = document.getElementById(
   "tools-all",
 ) as HTMLButtonElement;
@@ -1051,9 +1054,18 @@ export async function initTools(): Promise<void> {
     const response = await fetch("/api/tools");
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-    const data = (await response.json()) as { tools: ToolInfo[] };
+    const data = (await response.json()) as {
+      tools: ToolInfo[];
+      notices?: string[];
+    };
     toolInfos = data.tools;
     renderToolList();
+
+    // Why a tool is missing, when the provider hides one. textContent,
+    // like everything else that renders server-supplied text.
+    const notices = data.notices ?? [];
+    toolNotice.textContent = notices.join(" ");
+    toolNotice.hidden = notices.length === 0;
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     appendLog({
@@ -1193,7 +1205,7 @@ export function setAllTools(enabled: boolean): void {
   });
 }
 
-// --- API key ----------------------------------------------------------------
+// --- Provider key -----------------------------------------------------------
 //
 // The odd one out in this file. Every other control here stores its value in
 // localStorage and sends it with the next request; this one does neither.
@@ -1209,6 +1221,16 @@ export function setAllTools(enabled: boolean): void {
 // note under the input says so, and points at .env for anyone who would
 // rather not retype it.
 
+const apiProviderSelect = document.getElementById(
+  "api-provider",
+) as HTMLSelectElement;
+const apiKeyLabel = document.getElementById("api-key-label") as HTMLLabelElement;
+const apiProviderLink = document.getElementById(
+  "api-key-provider-link",
+) as HTMLAnchorElement;
+const apiProviderInstructions = document.getElementById(
+  "api-key-provider-instructions",
+) as HTMLElement;
 const apiKeyInput = document.getElementById(
   "api-key-input",
 ) as HTMLInputElement;
@@ -1230,10 +1252,34 @@ interface KeyStatus {
   set: boolean;
   hint: string | null;
   source: "env" | "settings" | null;
+  provider: "anthropic" | "portkey";
 }
 
 /** The last status the server reported, for restoring the hint. */
 let lastKeyStatus: KeyStatus | null = null;
+
+/** Keeps the key label and setup link in step with the selected gateway. */
+function updateProviderFields(provider: "anthropic" | "portkey"): void {
+  if (provider === "portkey") {
+    apiKeyLabel.textContent = "Portkey API key";
+    apiKeyInput.placeholder = "Portkey API key";
+    apiProviderLink.href = "https://app.portkey.ai/";
+    apiProviderLink.textContent = "Portkey dashboard";
+    apiProviderInstructions.textContent =
+      "First add your Anthropic credential in Portkey's Model Catalog. " +
+      "Paste the Portkey API key here. If your Model Catalog provider slug " +
+      "is not 'anthropic', set PORTKEY_PROVIDER in .env to that slug; a " +
+      "leading '@' is optional.";
+    return;
+  }
+
+  apiKeyLabel.textContent = "Anthropic API key";
+  apiKeyInput.placeholder = "sk-ant-...";
+  apiProviderLink.href = "https://console.anthropic.com/settings/keys";
+  apiProviderLink.textContent = "console.anthropic.com";
+  apiProviderInstructions.textContent =
+    "Requests go directly to Anthropic using this key.";
+}
 
 /**
  * Paints the status line, the banner and the Clear button from one status.
@@ -1247,6 +1293,8 @@ function renderKeyStatus(status: KeyStatus): void {
   lastKeyStatus = status;
 
   apiKeyStatus.classList.remove("is-error");
+  apiProviderSelect.value = status.provider;
+  updateProviderFields(status.provider);
 
   if (status.set) {
     apiKeyStatus.classList.add("is-ok");
@@ -1293,6 +1341,20 @@ function renderKeyError(message: string): void {
  * to have saved anything.
  */
 export function watchApiKeyInput(): void {
+  apiProviderSelect.addEventListener("change", () => {
+    const provider = apiProviderSelect.value === "portkey" ? "portkey" : "anthropic";
+    updateProviderFields(provider);
+
+    if (lastKeyStatus && provider !== lastKeyStatus.provider) {
+      apiKeyStatus.classList.remove("is-ok", "is-error");
+      apiKeyStatus.textContent =
+        "Provider changed. Enter a key for this provider and press Save; " +
+        "the active provider has not changed yet.";
+    } else if (lastKeyStatus) {
+      renderKeyStatus(lastKeyStatus);
+    }
+  });
+
   apiKeyInput.addEventListener("input", () => {
     const typed = apiKeyInput.value.trim() !== "";
 
@@ -1310,7 +1372,16 @@ export function watchApiKeyInput(): void {
 
     // Emptied again: restore whatever the server last told us, rather
     // than leaving the warning up for a field that no longer differs.
-    if (lastKeyStatus) renderKeyStatus(lastKeyStatus);
+    if (lastKeyStatus) {
+      if (apiProviderSelect.value === lastKeyStatus.provider) {
+        renderKeyStatus(lastKeyStatus);
+      } else {
+        apiKeyStatus.classList.remove("is-ok", "is-error");
+        apiKeyStatus.textContent =
+          "Provider changed. Enter a key for this provider and press Save; " +
+          "the active provider has not changed yet.";
+      }
+    }
   });
 }
 
@@ -1363,7 +1434,7 @@ export async function saveApiKey(): Promise<void> {
     const response = await fetch("/api/key", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key }),
+      body: JSON.stringify({ key, provider: apiProviderSelect.value }),
     });
 
     const data = (await response.json()) as KeyStatus & { error?: string };
@@ -1377,6 +1448,10 @@ export async function saveApiKey(): Promise<void> {
 
     apiKeyInput.value = "";
     renderKeyStatus(data);
+
+    // Which tools exist depends on the provider (web_search is hidden
+    // through Portkey), so a saved key may have changed the list.
+    void initTools();
 
     // Logged like any other setting change, so the activity panel shows the
     // moment the app became able to send. The hint is safe to log; the key
@@ -1412,6 +1487,8 @@ export async function clearApiKey(): Promise<void> {
     const data = (await response.json()) as KeyStatus;
     apiKeyInput.value = "";
     renderKeyStatus(data);
+    // Clearing falls back to the .env provider, which may differ.
+    void initTools();
 
     appendLog({
       level: "info",

@@ -1,10 +1,10 @@
 /**
- * api-key.ts — the one place the Anthropic API key lives.
+ * api-key.ts — the one place the provider API key lives.
  *
  * The key is held in a module-level variable rather than read from the
  * environment at every call site. That is what lets it be set from the app's
  * Settings dialog while the server is running: `setKey()` replaces the value,
- * and the next request to Anthropic uses the new one.
+ * and the next request uses the selected provider.
  *
  * Two rules this module exists to enforce:
  *
@@ -35,6 +35,7 @@ import "dotenv/config"; // so a .env key is visible to the seed below
  * remembered something it should not have.
  */
 export type KeySource = "env" | "settings";
+export type ApiProvider = "anthropic" | "portkey";
 
 /** What the frontend is allowed to know about the key. */
 export interface KeyStatus {
@@ -44,10 +45,12 @@ export interface KeyStatus {
   hint: string | null;
   /** Where the active key came from, or null when none is set. */
   source: KeySource | null;
+  /** Which gateway receives model requests. */
+  provider: ApiProvider;
 }
 
 /**
- * The live key. `null` means no key is set and calls to Anthropic will fail.
+ * The live key. `null` means no provider credential is set.
  *
  * Not exported: everything outside this module goes through the functions
  * below, so there is exactly one way to read it and one way to change it.
@@ -57,33 +60,38 @@ let currentKey: string | null = null;
 /** Where `currentKey` came from. Meaningless when `currentKey` is null. */
 let currentSource: KeySource | null = null;
 
-/**
- * The .env value, remembered separately.
- *
- * Kept so that clearing a key typed in Settings falls back to the .env key
- * rather than leaving the app dead. Without this, "Clear" on a machine that
- * has a .env would be a one-way door until the next restart.
- */
-const envKey: string | null = readEnvKey();
+const envProvider = readEnvProvider();
+const envKey = readEnvKey(envProvider);
+let currentProvider = envProvider;
 
-function readEnvKey(): string | null {
-  const raw = process.env.ANTHROPIC_API_KEY;
+function readEnvProvider(): ApiProvider {
+  const raw = process.env.AI_PROVIDER?.trim().toLowerCase();
+  if (raw === undefined || raw === "") return "anthropic";
+  if (raw === "anthropic" || raw === "portkey") return raw;
+
+  throw new Error('AI_PROVIDER must be either "anthropic" or "portkey".');
+}
+
+function readEnvKey(provider: ApiProvider): string | null {
+  const raw =
+    provider === "anthropic"
+      ? process.env.ANTHROPIC_API_KEY
+      : process.env.PORTKEY_API_KEY;
   if (typeof raw !== "string") return null;
 
   const trimmed = raw.trim();
   return trimmed === "" ? null : trimmed;
 }
 
-// Seed from .env at startup, if there is one. This is why an existing
-// installation keeps working with no change: the key was in .env before and
-// it still is, the app just no longer requires it to be.
+// Seed from the selected provider's .env key. Leaving AI_PROVIDER unset keeps
+// existing installations on Anthropic.
 if (envKey !== null) {
   currentKey = envKey;
   currentSource = "env";
 }
 
 /**
- * Checks that a string looks like an Anthropic key before accepting it.
+ * Checks that a string looks like a usable key before accepting it.
  *
  * This is shape-checking, not verification — only the API can say whether a
  * key is real and funded. The point is to catch the common pastes that are
@@ -93,20 +101,24 @@ if (envKey !== null) {
  *
  * @returns an error message to show the user, or null when the shape is fine
  */
-export function validateKeyFormat(key: string): string | null {
+export function validateKeyFormat(
+  key: string,
+  provider: ApiProvider,
+): string | null {
   const trimmed = key.trim();
 
   if (trimmed === "") {
     return "No key was provided.";
   }
 
-  if (!trimmed.startsWith("sk-ant-")) {
+  if (provider === "anthropic" && !trimmed.startsWith("sk-ant-")) {
     return 'An Anthropic API key starts with "sk-ant-". Check you copied the whole key, and that it is not a key for a different service.';
   }
 
   // Real keys are around 100 characters. The exact length is not documented
   // and could change, so this only rejects something far too short to be a
-  // key at all — a truncated paste, usually.
+  // key at all — a truncated paste, usually. Portkey keys do not have a
+  // provider-independent prefix, so only Anthropic receives a prefix check.
   if (trimmed.length < 20) {
     return "That key looks too short. Check the whole value was copied.";
   }
@@ -123,14 +135,12 @@ export function validateKeyFormat(key: string): string | null {
 /**
  * Masks a key for display.
  *
- * Shows the "sk-ant-" prefix and the last four characters. That is enough to
- * confirm which key is loaded, or to tell a work key from a personal one,
- * while leaving the value useless to anyone reading over a shoulder or
- * watching a screen share.
+ * Shows a provider label and the last four characters, enough to distinguish
+ * credentials without displaying a usable prefix or the full key.
  */
-function maskKey(key: string): string {
+function maskKey(key: string, provider: ApiProvider): string {
   const tail = key.slice(-4);
-  return `sk-ant-…${tail}`;
+  return `${provider === "portkey" ? "Portkey" : "Anthropic"} …${tail}`;
 }
 
 /** Whether a key is currently set. */
@@ -147,9 +157,14 @@ export function getKey(): string | null {
   return currentKey;
 }
 
+/** The provider used for the current key. */
+export function getProvider(): ApiProvider {
+  return currentProvider;
+}
+
 /** The masked hint, or null when no key is set. */
 export function keyHint(): string | null {
-  return currentKey === null ? null : maskKey(currentKey);
+  return currentKey === null ? null : maskKey(currentKey, currentProvider);
 }
 
 /** Everything the frontend may know, in the shape the endpoint returns. */
@@ -158,6 +173,7 @@ export function getStatus(): KeyStatus {
     set: currentKey !== null,
     hint: keyHint(),
     source: currentSource,
+    provider: currentProvider,
   };
 }
 
@@ -170,12 +186,17 @@ export function getStatus(): KeyStatus {
  *
  * @returns an error message when rejected, or null on success
  */
-export function setKey(key: string): string | null {
-  const problem = validateKeyFormat(key);
+export function setKey(key: string, provider: ApiProvider): string | null {
+  if (provider !== "anthropic" && provider !== "portkey") {
+    return "Choose Anthropic or Portkey.";
+  }
+
+  const problem = validateKeyFormat(key, provider);
   if (problem !== null) return problem;
 
   currentKey = key.trim();
   currentSource = "settings";
+  currentProvider = provider;
   return null;
 }
 
@@ -187,6 +208,7 @@ export function setKey(key: string): string | null {
  * the app with no key, which is the intended "log out" behaviour.
  */
 export function clearKey(): void {
+  currentProvider = envProvider;
   if (envKey !== null) {
     currentKey = envKey;
     currentSource = "env";

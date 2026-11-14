@@ -48,7 +48,7 @@
  */
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { getClient, MAX_TOKENS } from "../../anthropic.js";
+import { apiModelId, getClient, MAX_TOKENS } from "../../anthropic.js";
 import { runOneTool } from "../tool-runner.js";
 import { logServerToolActivity } from "../../tools/server-tool-log.js";
 import { serverToolCounts } from "../../tools/server-tools.js";
@@ -225,7 +225,7 @@ export const toolLoop: Pattern = {
       }
 
       const request = {
-        model: producing,
+        model: apiModelId(producing),
         max_tokens: MAX_TOKENS,
         // A top-level parameter, NOT an entry in the messages array.
         // Putting it in messages with role "system" is a common mistake

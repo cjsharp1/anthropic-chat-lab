@@ -26,6 +26,7 @@ import { flakyService } from "./definitions/flaky-service.js";
 import { notesTool } from "./definitions/notes.js";
 import { readFileTool } from "./definitions/read-file.js";
 import { searchDocs } from "./definitions/search-docs.js";
+import { searchWeb } from "./definitions/search-web.js";
 import type { AnyLabTool } from "./types.js";
 // Imported for its value, not its type: getMcpTools() is called at
 // request time. server/mcp/client.ts imports THIS module back (to
@@ -51,6 +52,7 @@ export const TOOLS: AnyLabTool[] = [
   currentTime,
   notesTool,
   searchDocs,
+  searchWeb,
   readFileTool,
   flakyService,
 ];
