@@ -131,7 +131,7 @@ npm run dev
 
 Then open **http://localhost:3000**.
 
-`npm run dev` uses `tsx`, which runs the TypeScript directly and
+`npm run dev` compiles the browser half once, then uses `tsx`, which runs the server TypeScript directly and
 restarts on save. That is the normal way to use this app.
 
 A restart clears the in-memory API key, so you will be asked for it
@@ -455,7 +455,7 @@ exists. `npm run audit-comments` checks that none have been missed.
 
 | Command | What it does |
 |---|---|
-| `npm run dev` | Start the app on port 3000, restarting on save |
+| `npm run dev` | Compile the browser half, then start the app on port 3000, restarting on save |
 | `npm run check-env` | Inspect `.env` — note it cannot see a key set in Settings |
 | `npm run hello` | The smallest possible API call |
 | `npm run try-notes` | Exercise the notes tool directly |

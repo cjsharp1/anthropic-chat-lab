@@ -42,7 +42,7 @@ same edit. A stale explanation is worse here than no explanation.
 
 | Command | What it does |
 |---|---|
-| `npm run dev` | Start on port 3000, restart on save (`tsx`) |
+| `npm run dev` | Compile the browser half, then start on port 3000, restart on save (`tsx`) |
 | `npm run typecheck` | **Both** halves — server and client |
 | `npm run build` | Compile both halves into `dist/` |
 | `npm run audit-comments` | Verify every file has a header |
@@ -57,7 +57,8 @@ Two halves with a hard boundary between them:
 
 - `server/` — Express, the Anthropic SDK, the API key, tool execution.
 - `public/` — the browser. Compiles **in place** (`public/app.ts` →
-  `public/app.js`), which is why `public/*.js` is git-ignored.
+  `public/app.js`), which is why `public/*.js` is git-ignored. A fresh
+  clone has none, so `npm run dev` compiles them before starting.
 - `shared/types.ts` — the wire contract, imported by both so they
   cannot disagree about what crosses the connection.
 
