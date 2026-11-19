@@ -1,0 +1,1275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How Chat Lab Works</title>
+<meta name="description" content="A guided tour of Anthropic Chat Lab: what it does, how one chat request travels from the browser through the Express server to the Claude API and back, and why each part is built the way it is.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* The shared "how it works" stylesheet. All three labs' how-it-works
+     pages carry this block verbatim; only the two accent tokens differ,
+     matching each project's overview page. The design source of truth is
+     anthropic-mcp-lab. Tokens and base styles come from ../index.html;
+     page components (code blocks, figures, contents, diagram, steps,
+     glossary) follow, then a few components only some pages use. */
+  :root {
+    --bg: #fbfaf8;
+    --surface: #ffffff;
+    --surface-sunk: #f4f2ee;
+    --fg: #1a1815;
+    --fg-dim: #6a635a;
+    --fg-faint: #938b80;
+    --rule: #e0dbd2;
+    --rule-strong: #c8c1b6;
+    --accent: #9a4f20;
+    --accent-soft: #f2e6dc;
+    --good: #4a6b48;
+    --warn: #8a6410;
+
+    --font-display: "Newsreader", Georgia, "Times New Roman", serif;
+    --font-body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #16150f;
+      --surface: #1e1c17;
+      --surface-sunk: #26231d;
+      --fg: #ece8e0;
+      --fg-dim: #9d958a;
+      --fg-faint: #7a7368;
+      --rule: #35312a;
+      --rule-strong: #4a453c;
+      --accent: #d98a55;
+      --accent-soft: #33251b;
+      --good: #8fb58c;
+      --warn: #d9b45f;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #16150f;
+    --surface: #1e1c17;
+    --surface-sunk: #26231d;
+    --fg: #ece8e0;
+    --fg-dim: #9d958a;
+    --fg-faint: #7a7368;
+    --rule: #35312a;
+    --rule-strong: #4a453c;
+    --accent: #d98a55;
+    --accent-soft: #33251b;
+    --good: #8fb58c;
+    --warn: #d9b45f;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 1.65;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 52rem;
+    margin: 0 auto;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 0 6rem;
+  }
+
+  header.top {
+    padding-block: 2rem 2rem;
+    border-bottom: 2px solid var(--fg);
+  }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 1rem;
+  }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: clamp(2.4rem, 7vw, 3.6rem);
+    line-height: 1.05;
+    letter-spacing: -0.015em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-family: var(--font-display);
+    font-size: clamp(1.05rem, 2.6vw, 1.3rem);
+    line-height: 1.5;
+    color: var(--fg-dim);
+    margin: 1rem 0 0;
+    max-width: 44ch;
+  }
+
+  section { padding-block: 2.75rem 0; }
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 1.75rem;
+    line-height: 1.2;
+    margin: 0 0 0.25rem;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  .sec-note {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+    margin: 0 0 1.4rem;
+    padding-bottom: 0.8rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  h3 {
+    font-family: var(--font-body);
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--fg-dim);
+    margin: 2rem 0 0.75rem;
+  }
+  p { margin: 0 0 1rem; max-width: 64ch; }
+  p:last-child { margin-bottom: 0; }
+
+  a { color: var(--accent); }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    background: var(--surface-sunk);
+    padding: 0.1em 0.35em;
+    border-radius: 2px;
+    overflow-wrap: anywhere;
+  }
+  strong { font-weight: 600; }
+  em { font-style: italic; }
+
+  .t-scroll { overflow-x: auto; margin: 0 0 1rem; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.9rem;
+  }
+  th {
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+    border-bottom: 1px solid var(--rule-strong);
+    padding: 0.5rem 0.9rem 0.5rem 0;
+    white-space: nowrap;
+  }
+  td {
+    border-bottom: 1px solid var(--rule);
+    padding: 0.65rem 0.9rem 0.65rem 0;
+    vertical-align: top;
+  }
+  th:last-child, td:last-child { padding-right: 0; }
+  td.mono, .num {
+    font-family: var(--font-mono);
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  td.name { font-weight: 600; white-space: nowrap; }
+  caption {
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+    padding-bottom: 0.5rem;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    padding: 0.9rem 1.1rem;
+    margin: 1.25rem 0;
+    font-size: 0.92rem;
+  }
+  .note p { max-width: none; }
+  .note .note-label {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 0.3rem;
+  }
+  .note.caution { border-left-color: var(--warn); }
+  .note.caution .note-label { color: var(--warn); }
+
+  ul.plain, ol.plain {
+    margin: 0 0 1rem;
+    padding-left: 1.1rem;
+    max-width: 64ch;
+  }
+  ul.plain li, ol.plain li { margin-bottom: 0.5rem; }
+  ul.plain li::marker, ol.plain li::marker { color: var(--fg-faint); }
+
+  footer {
+    margin-top: 3rem;
+    padding-top: 1.25rem;
+    border-top: 2px solid var(--fg);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--fg-faint);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.5rem;
+  }
+
+  /* ---- Page components ---- */
+
+  .back {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    letter-spacing: 0.04em;
+    padding-top: 1.5rem;
+    text-decoration: none;
+  }
+  .back:hover { text-decoration: underline; }
+
+  nav.toc {
+    margin: 2rem 0 0;
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--rule);
+    background: var(--surface);
+  }
+  nav.toc .toc-label {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+    display: block;
+    margin-bottom: 0.5rem;
+  }
+  nav.toc ol {
+    margin: 0;
+    padding-left: 1.4rem;
+    columns: 2 18rem;
+    column-gap: 2rem;
+    font-size: 0.92rem;
+  }
+  nav.toc li { margin-bottom: 0.25rem; break-inside: avoid; }
+  nav.toc li::marker { color: var(--fg-faint); font-family: var(--font-mono); font-size: 0.8em; }
+  nav.toc .toc-part {
+    list-style: none;
+    counter-increment: list-item 0;
+    margin-left: -1.4rem;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-top: 0.4rem;
+  }
+
+  pre {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    line-height: 1.55;
+    background: var(--surface-sunk);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 0.9rem 1rem;
+    margin: 0;
+    overflow-x: auto;
+    max-width: 100%;
+    tab-size: 2;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+    border-radius: 0;
+    overflow-wrap: normal;
+  }
+  pre .c { color: var(--fg-faint); }
+
+  figure {
+    margin: 1.5rem 0;
+    min-width: 0;
+  }
+  figure > pre + pre { margin-top: 0.5rem; }
+  figcaption {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.02em;
+    color: var(--fg-faint);
+    margin-top: 0.45rem;
+    line-height: 1.5;
+  }
+  figcaption .path { color: var(--accent); }
+  figure.shot img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border: 1px solid var(--rule-strong);
+    border-radius: 6px;
+  }
+  figure.shot.narrow img { max-width: min(100%, 26rem); }
+
+  .pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+  .pair > figure { margin: 0; }
+
+  .diagram-scroll { overflow-x: auto; }
+  .diagram { display: block; width: 100%; min-width: 640px; height: auto; }
+  .diagram .box { fill: var(--surface); stroke: var(--rule-strong); stroke-width: 1.2; }
+  .diagram .box-accent { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.2; }
+  .diagram .zone { fill: none; stroke: var(--rule-strong); stroke-dasharray: 4 4; }
+  .diagram text { fill: var(--fg); font-family: var(--font-body); font-size: 13px; }
+  .diagram .t-title { font-weight: 600; font-size: 13.5px; }
+  .diagram .t-mono { font-family: var(--font-mono); font-size: 11.5px; fill: var(--fg-dim); }
+  .diagram .t-zone { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em; fill: var(--fg-faint); }
+  .diagram .t-label { font-family: var(--font-mono); font-size: 11px; fill: var(--accent); }
+  .diagram .line { stroke: var(--fg-dim); stroke-width: 1.4; fill: none; }
+  .diagram .line-accent { stroke: var(--accent); stroke-width: 1.6; fill: none; }
+  .diagram .line-dash { stroke: var(--fg-faint); stroke-width: 1.3; fill: none; stroke-dasharray: 5 4; }
+  .diagram .head { fill: var(--fg-dim); }
+  .diagram .head-accent { fill: var(--accent); }
+
+  ol.steps {
+    list-style: none;
+    margin: 0 0 1rem;
+    padding: 0;
+    counter-reset: st;
+    border-top: 1px solid var(--rule);
+  }
+  ol.steps > li {
+    counter-increment: st;
+    display: grid;
+    grid-template-columns: 2.4rem 1fr;
+    gap: 0 0.8rem;
+    padding: 0.8rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  ol.steps > li::before {
+    content: counter(st, decimal-leading-zero);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--accent);
+    padding-top: 0.2rem;
+  }
+  ol.steps > li > div { min-width: 0; }
+  ol.steps p { margin-bottom: 0.5rem; }
+
+  dl.glossary { margin: 0; border-top: 1px solid var(--rule); }
+  dl.glossary > div {
+    display: grid;
+    grid-template-columns: 12rem 1fr;
+    gap: 0 1rem;
+    padding: 0.65rem 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  dl.glossary dt { font-weight: 600; font-size: 0.92rem; }
+  dl.glossary dd { margin: 0; font-size: 0.92rem; color: var(--fg); min-width: 0; }
+
+  .sixty {
+    border: 1px solid var(--rule-strong);
+    background: var(--surface);
+    padding: 1.1rem 1.25rem;
+    font-family: var(--font-display);
+    font-size: 1.08rem;
+    line-height: 1.6;
+  }
+  .sixty p { max-width: none; }
+
+  /* ---- Components only some pages use ---- */
+  /* A figure number at the start of a caption ("Figure 2"). */
+  figcaption b {
+    font-weight: 500;
+    color: var(--fg-dim);
+    margin-right: 0.4rem;
+  }
+  /* A screenshot that links to its full-size image. */
+  figure.shot a { display: inline-block; max-width: 100%; }
+  /* Diagram boxes for optional or out-of-band parts, and a fence round a group. */
+  .diagram .box-ext { fill: var(--surface); stroke: var(--rule-strong); stroke-width: 1.2; stroke-dasharray: 5 4; }
+  .diagram .fence { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 2 4; }
+  /* A file reference under a step's text. */
+  ol.steps .where {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--fg-faint);
+  }
+  /* Tables whose mono column holds long values: let it wrap rather than
+     push the description off the side of a phone screen. */
+  table.wrap-mono td.mono { white-space: normal; overflow-wrap: anywhere; width: 38%; }
+  table.wrap-roles td.mono { white-space: normal; }
+  /* Questions and answers, one per disclosure row. */
+  .qa { border-top: 1px solid var(--rule); }
+  .qa details { border-bottom: 1px solid var(--rule); padding: 0.6rem 0; }
+  .qa summary { cursor: pointer; font-weight: 500; }
+  .qa details p { margin-top: 0.5rem; }
+  @media (max-width: 640px) {
+    .pair { grid-template-columns: 1fr; }
+    dl.glossary > div { grid-template-columns: 1fr; }
+    dl.glossary dt { margin-bottom: 0.15rem; }
+    pre { font-size: 0.74rem; padding: 0.75rem; }
+    /* A table marked .stack becomes one block per row, so the last column
+       gets the full width instead of a sliver beside narrow columns. */
+    table.stack thead { display: none; }
+    table.stack tr {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.15rem 0.75rem;
+      padding: 0.7rem 0;
+      border-bottom: 1px solid var(--rule);
+    }
+    table.stack td { border: 0; padding: 0; }
+    table.stack td.name { grid-column: 1 / -1; }
+    table.stack td:last-child { grid-column: 1 / -1; margin-top: 0.2rem; }
+    table.stack tbody tr:last-child { border-bottom: 0; }
+    table.stack td[data-label]::before { content: attr(data-label) ": "; color: var(--fg-faint); }
+  }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+
+  <a class="back" href="../index.html">&larr; Back to overview</a>
+
+  <header class="top">
+    <p class="eyebrow">Anthropic Chat Lab · how it works</p>
+    <h1>How the Chat Lab works</h1>
+    <p class="standfirst">What the app does, how one message travels from the browser to Claude and back, and why each part is built the way it is, with the real code.</p>
+  </header>
+
+  <nav class="toc" aria-label="Contents">
+    <span class="toc-label">Contents</span>
+    <ol>
+      <li class="toc-part">The overview</li>
+      <li><a href="#sixty-seconds">The 60-second version</a></li>
+      <li><a href="#what-you-see">What you see and do</a></li>
+      <li><a href="#big-picture">The big picture</a></li>
+      <li><a href="#one-request">Life of one chat request</a></li>
+      <li class="toc-part">Going deeper</li>
+      <li><a href="#routes">The server and its routes</a></li>
+      <li><a href="#wire">The wire contract and the logger</a></li>
+      <li><a href="#tools">The tool system</a></li>
+      <li><a href="#tool-loop">The tool loop</a></li>
+      <li><a href="#patterns">Orchestration patterns</a></li>
+      <li><a href="#mcp">MCP integration</a></li>
+      <li><a href="#caching">Caching, thinking and effort</a></li>
+      <li><a href="#usage">Usage and cost accounting</a></li>
+      <li><a href="#security">The API key and security</a></li>
+      <li><a href="#frontend">The frontend</a></li>
+      <li><a href="#terms">Key terms</a></li>
+      <li><a href="#questions">Questions people ask</a></li>
+    </ol>
+  </nav>
+
+  <!-- ================================================================== -->
+  <section id="sixty-seconds">
+    <h2>The 60-second version</h2>
+    <p class="sec-note">If you only have a minute</p>
+
+    <div class="sixty">
+      <p>Chat Lab is a local teaching app for the Claude API. On the left is an ordinary chat. On the right is an <strong>activity log</strong> that shows every request sent to Anthropic and every response that comes back: the real JSON, the token counts, the cost, and a sentence explaining why each step happened.</p>
+      <p>It is a TypeScript app with two halves. The <strong>browser</strong> half has no framework and never sees the API key. It posts the conversation to a small <strong>Express server</strong>. The server holds the key in memory, calls Claude through the official SDK, runs any tools Claude asks for, and streams everything back to the browser over <strong>Server-Sent Events</strong>.</p>
+      <p>You can change the moving parts between messages and watch the numbers move. There are seven orchestration patterns, from a single call through a tool loop to orchestrator-and-workers, and a model for each role. You can also change the tools (six local, one Anthropic-hosted, plus any from a connected <strong>MCP</strong> server), the system prompt, prompt caching, thinking display and effort. The point is to <em>see</em> how the API behaves, and what it costs, rather than read about it.</p>
+    </div>
+
+    <p>Three ideas carry most of the design, and the rest of this page keeps coming back to them:</p>
+    <ul class="plain">
+      <li><strong>The API is stateless.</strong> Every request carries the whole conversation and the full tool definitions. Nothing is remembered between calls, and that is why input tokens grow and why caching matters.</li>
+      <li><strong>The model never runs anything.</strong> Claude replies "please call <code>calculator</code> with these arguments". The server runs the function and sends the result back in another request. The log keeps "Claude asked" and "our code did" visibly separate.</li>
+      <li><strong>The key stays on the server.</strong> The browser can set the key, but it can never read it back. Model output is never inserted as HTML.</li>
+    </ul>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="what-you-see">
+    <h2>What you see and do</h2>
+    <p class="sec-note">Two panes, one dialog, five example buttons</p>
+
+    <p>The window has two columns, each with its own header and its own Clear button. The <strong>Message log</strong> on the left is the conversation. The <strong>Activity log</strong> on the right lists what each turn actually did, grouped by message and by request. Above the conversation, a one-line summary shows the current settings (only the ones changed from the default). Click it to open the Settings dialog. The running cost for the session sits at the top right.</p>
+
+    <figure class="shot">
+      <a href="img/chat-tool-call.png"><img src="img/chat-tool-call.png" width="1400" height="900" alt="The Chat Lab window. Left: the user asked 'What is 847293 multiplied by 61847?', a calculator tool card shows the arguments and result, and Claude's answer 52,402,530,171 has a footer showing model, cost, time and 2 requests. Right: the activity log, with rows for the tool call, the tool result, the second request and its 97% cached response."></a>
+      <figcaption>The <em>Tool call</em> example after one send. The transcript shows the tool card and the answer. Its footer reads <code>claude-opus-5-5 · $0.0427 · 8452 ms · 2 requests</code>. The log on the right shows the second request carrying the tool result back.</figcaption>
+    </figure>
+
+    <p>A typical session goes like this:</p>
+    <ol class="plain">
+      <li><strong>Pick a starting point.</strong> Above the message box is a row of five examples: <em>Tool call</em>, <em>Tool loop</em>, <em>Caching</em>, <em>Extract</em> and <em>Effort</em>. Each one fills the box with a question and switches on whatever it needs, such as the tool-loop pattern, the tools or a low effort level. It does not send, so you can read the question first.</li>
+      <li><strong>Send.</strong> Your message appears straight away. A waiting row says what is being waited on, and the reply types itself out as it streams. When a tool runs, a <em>tool card</em> appears between the messages with its arguments and its result.</li>
+      <li><strong>Read the log.</strong> Each row has an arrow (<code>→</code> data left the machine, <code>←</code> data came back, <code>·</code> something happened locally), a level tag (<code>API</code>, <code>TOOL</code>, <code>INFO</code>, <code>WARN</code>, <code>ERROR</code>), an actor chip (<code>USER</code>, <code>APP</code>, <code>CLAUDE</code>, <code>TOOL</code>), a "because…" sentence, and an expander holding the real payload.</li>
+      <li><strong>Change one thing and compare.</strong> Under each reply, a <em>Re-run with</em> row lets you swap the model for one role and run the same question again. You get a side-by-side comparison of cost, requests and time. Or open Settings, change the pattern, the prompt, caching or effort, and ask again.</li>
+    </ol>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="big-picture">
+    <h2>The big picture</h2>
+    <p class="sec-note">Browser · Express server · Anthropic API · tools · MCP</p>
+
+    <figure>
+      <div class="diagram-scroll">
+      <svg class="diagram" viewBox="0 0 860 280" role="img" aria-labelledby="dg-title dg-desc">
+        <title id="dg-title">Architecture of the Chat Lab</title>
+        <desc id="dg-desc">The browser posts the conversation and settings to the Express server at /api/chat and receives a Server-Sent Events stream back. The server holds the API key, calls the Anthropic Messages API with the full history and tools, and receives a streamed reply. The server runs local tools itself and, when one is connected, forwards tool calls to an MCP server. web_search runs inside Anthropic.</desc>
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head" d="M0,0 L10,5 L0,10 z"/></marker>
+          <marker id="aha" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="head-accent" d="M0,0 L10,5 L0,10 z"/></marker>
+        </defs>
+
+        <!-- Browser -->
+        <rect class="box" x="20" y="40" width="190" height="170" rx="4"/>
+        <text class="t-title" x="34" y="66">Browser</text>
+        <text class="t-label" x="34" y="84">public/ · no framework</text>
+        <text class="t-mono" x="34" y="108">transcript · tool cards</text>
+        <text class="t-mono" x="34" y="128">activity log</text>
+        <text class="t-mono" x="34" y="148">Settings dialog</text>
+        <text class="t-mono" x="34" y="168">keeps the history</text>
+        <text class="t-mono" x="34" y="188">never holds the key</text>
+
+        <!-- Express server -->
+        <rect class="box-accent" x="320" y="20" width="240" height="230" rx="4"/>
+        <text class="t-title" x="334" y="46">Express server</text>
+        <text class="t-label" x="334" y="64">server/ · :3000</text>
+        <text class="t-mono" x="334" y="92">index.ts</text><text class="t-mono" x="454" y="92">17 routes</text>
+        <text class="t-mono" x="334" y="114">orchestration/</text><text class="t-mono" x="454" y="114">7 patterns</text>
+        <text class="t-mono" x="334" y="136">tool-runner.ts</text><text class="t-mono" x="454" y="136">runs tools</text>
+        <text class="t-mono" x="334" y="158">tools/</text><text class="t-mono" x="454" y="158">6 local tools</text>
+        <text class="t-mono" x="334" y="180">logger.ts</text><text class="t-mono" x="454" y="180">activity rows</text>
+        <text class="t-mono" x="334" y="202">api-key.ts</text><text class="t-mono" x="454" y="202">key in memory</text>
+
+        <!-- Anthropic API -->
+        <rect class="box" x="670" y="20" width="170" height="110" rx="4"/>
+        <text class="t-title" x="684" y="46">Anthropic API</text>
+        <text class="t-label" x="684" y="64">api.anthropic.com</text>
+        <text class="t-mono" x="684" y="88">Messages API</text>
+        <text class="t-mono" x="684" y="108">web_search runs here</text>
+
+        <!-- MCP server (optional) -->
+        <rect class="box-ext" x="670" y="170" width="170" height="80" rx="4"/>
+        <text class="t-title" x="684" y="196">MCP server</text>
+        <text class="t-label" x="684" y="214">optional</text>
+        <text class="t-mono" x="684" y="236">HTTP or stdio</text>
+
+        <!-- Browser <-> server -->
+        <line class="line-accent" x1="212" y1="95" x2="316" y2="95" marker-end="url(#aha)"/>
+        <line class="line" x1="318" y1="135" x2="214" y2="135" marker-end="url(#ah)"/>
+        <text class="t-label" x="218" y="87">POST /api/chat</text>
+        <text class="t-mono" x="218" y="153">SSE events</text>
+
+        <!-- Server <-> Anthropic -->
+        <line class="line-accent" x1="562" y1="60" x2="666" y2="60" marker-end="url(#aha)"/>
+        <line class="line" x1="668" y1="100" x2="564" y2="100" marker-end="url(#ah)"/>
+        <text class="t-label" x="568" y="52">request</text>
+        <text class="t-mono" x="568" y="118">streamed reply</text>
+
+        <!-- Server <-> MCP server -->
+        <line class="line-dash" x1="564" y1="215" x2="666" y2="215" marker-start="url(#ah)" marker-end="url(#ah)"/>
+        <text class="t-mono" x="568" y="207">tools/call</text>
+      </svg>
+      </div>
+      <figcaption>Solid border: always present. Dashed: only when connected in Settings &rarr; Tools. Drawn from <span class="path">server/index.ts</span>, <span class="path">server/orchestration/tool-runner.ts</span> and <span class="path">server/mcp/client.ts</span>.</figcaption>
+    </figure>
+
+    <p>There is a hard boundary between the two halves. <code>server/</code> owns the SDK, the key and tool execution. <code>public/</code> is browser code and compiles <em>in place</em> (<code>public/app.ts</code> becomes <code>public/app.js</code>). Between them sits <code>shared/types.ts</code>, the wire contract, which both halves import. That way they cannot disagree about what crosses the connection.</p>
+
+    <p>The browser never talks to Anthropic. That choice is not decoration. It is the only way to keep a key secret in a web app. A key held in frontend code can be read by anyone who opens DevTools.</p>
+
+    <p>A few numbers make the picture concrete. There are 17 HTTP routes, 7 patterns and 7 built-in tools (6 run by this server, 1 by Anthropic). There are three model roles: <em>deciding</em> defaults to Haiku 5.5, while <em>producing</em> and <em>judging</em> default to Opus 5.5. There is no database. Everything that changes at runtime is held in memory or in the browser: the API key, the MCP connection, notes saved by the notes tool and the conversation history.</p>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="one-request">
+    <h2>Life of one chat request</h2>
+    <p class="sec-note">“What is 847293 multiplied by 61847?” · tool loop · two API calls</p>
+
+    <p>This is the whole journey in plain words, using the <em>Tool call</em> example. Each step names the file where it happens.</p>
+
+    <ol class="steps">
+      <li><div>
+        <p><strong>The browser builds a snapshot.</strong> <code>handleSubmit</code> in <code>public/app.ts</code> shows your message, then adds it to the browser's own copy of the conversation. It posts <em>the whole conversation</em> to <code>/api/chat</code>, together with the settings: prompt id, ticked tool names, pattern, model per role, cache mode, thinking display and effort.</p>
+      </div></li>
+      <li><div>
+        <p><strong>The server opens a stream.</strong> The <code>/api/chat</code> route in <code>server/index.ts</code> sets the SSE headers and calls <code>flushHeaders()</code>. It then creates a <code>Logger</code> whose output goes straight down the open connection as <code>{type: "log"}</code> events.</p>
+      </div></li>
+      <li><div>
+        <p><strong>It validates everything.</strong> <code>parseMessages</code> drops malformed turns. Unknown prompt ids, patterns, models and effort levels fall back to defaults. Tool names are filtered against the tools that really exist. Nothing from the request body is trusted, because anyone with <code>curl</code> can post to the route.</p>
+      </div></li>
+      <li><div>
+        <p><strong>It builds the tools array.</strong> Ticked local and MCP tools go through <code>toApiTools()</code>. Ticked server tools (<code>web_search</code>) are appended to the <em>same</em> array. Log rows record exactly which definitions were sent and how many characters they take up.</p>
+      </div></li>
+      <li><div>
+        <p><strong>It hands off to a pattern.</strong> The route looks up the selected pattern and calls <code>pattern.run(context)</code>. From here the route does not know whether one request or eight will follow.</p>
+      </div></li>
+      <li><div>
+        <p><strong>Request 1.</strong> The tool loop marks cache breakpoints and logs the full request body (<code>→ Calling claude-opus-5-5 · 1 message(s) · 7 tool(s)</code>). It then calls <code>getClient().messages.stream(request)</code>. Text fragments go to the browser as <code>delta</code> events while they are generated.</p>
+      </div></li>
+      <li><div>
+        <p><strong>Claude asks for a tool.</strong> The response has <code>stop_reason: "tool_use"</code> and a <code>tool_use</code> block: <code>calculator({a: 847293, b: 61847, op: "multiply"})</code> with an id like <code>toolu_…</code>. There is no answer yet.</p>
+      </div></li>
+      <li><div>
+        <p><strong>The server runs it.</strong> <code>runOneTool</code> sends a <code>tool_start</code> event, so a tool card appears. It validates the arguments against the tool's schema, calls <code>run()</code>, and sends <code>tool_end</code> with the result <code>847293 × 61847 = 52402530171</code>.</p>
+      </div></li>
+      <li><div>
+        <p><strong>Both turns are appended.</strong> The assistant turn (with its <code>tool_use</code> block) and a user turn holding a <code>tool_result</code> are pushed onto the messages. The <code>tool_result</code> quotes the same <code>tool_use_id</code>.</p>
+      </div></li>
+      <li><div>
+        <p><strong>Request 2.</strong> The whole conversation, now three messages, is sent again with the same tools. Because the prefix is identical, most of it is read from the prompt cache. The response is <code>end_turn</code> with the text <code>52,402,530,171</code>.</p>
+      </div></li>
+      <li><div>
+        <p><strong>Done.</strong> The pattern returns <code>{text, cost, requests}</code>. The route logs a summary and sends a <code>done</code> event with the authoritative final text, cost, elapsed time, request count and models used. The browser renders the reply as Markdown, adds the cost footer, and stores the reply in its history for the next turn.</p>
+      </div></li>
+    </ol>
+
+    <figure class="shot">
+      <a href="img/log-sequence.png"><img src="img/log-sequence.png" width="770" height="1450" alt="The activity log for one Tool call turn. Setup rows (example loaded, server tools, 7 of 7 tools sent, system prompt, pattern, models), then Message 1 request 1: Calling claude-opus-5-5, the response with stop_reason tool_use, Claude requested 1 tool call, the client calculator call and result, built a user message with 1 tool_result block. Then request 2: iteration 2 call, the end_turn response 100% cached, caching saved, finished after 2 iterations, tool loop finished."></a>
+      <figcaption>The same turn in the activity log, collapsed. Setup rows (<code>USER</code> actor: what you ticked and selected) come first. Then come request 1, the tool round trip, and request 2. Arrows show where bytes moved, and actor chips show whose decision it was.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="routes">
+    <h2>The server and its routes</h2>
+    <p class="sec-note">server/index.ts · Express 5 · Server-Sent Events</p>
+
+    <p><code>server/index.ts</code> is the entry point. It does three jobs: it serves the frontend from <code>public/</code> with <code>express.static</code>, it answers the API routes, and it holds the key (through <code>api-key.ts</code>). The JSON body limit is raised to <code>2mb</code> because a long conversation is resent on every turn.</p>
+
+    <div class="t-scroll">
+      <table class="wrap-mono">
+        <thead><tr><th>Route</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">POST /api/chat</td><td>Runs one turn through the selected pattern and streams it as SSE</td></tr>
+          <tr><td class="mono">POST /api/extract</td><td>Structured extraction on demand, also streamed as SSE so its API call appears in the log</td></tr>
+          <tr><td class="mono">GET /api/key-status</td><td>Whether a key is set, a masked hint, and its source (<code>env</code> or <code>settings</code>)</td></tr>
+          <tr><td class="mono">POST /api/key<br>DELETE /api/key</td><td>Set a key (shape-checked) or forget it. Clearing falls back to a <code>.env</code> key if one exists</td></tr>
+          <tr><td class="mono">GET/POST/DELETE /api/mcp</td><td>MCP connection status, connect, disconnect</td></tr>
+          <tr><td class="mono">GET /api/tools</td><td>Tool metadata only (name, description, who runs it, example prompt). Schemas and functions stay on the server</td></tr>
+          <tr><td class="mono">GET /api/patterns, /prompts, /models, /cache-modes, /thinking-options, /effort-levels, /tool-choices</td><td>The options each Settings control offers, with the explanatory text that sits beside the code</td></tr>
+          <tr><td class="mono">GET /api/health</td><td>Liveness check that involves neither Claude nor the key</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Why SSE, and the one detail that matters</h3>
+    <p>The route comments weigh up the options. Plain JSON would leave a blank screen for the 30 seconds a five-call pattern can take. WebSockets are two-way, which is more machinery than needed, because the browser sends one request and then only listens. SSE is one-way, runs over an ordinary HTTP response, and needs no library or protocol upgrade. Every event goes through one function:</p>
+
+    <figure>
+<pre><code>  function send(event: StreamEvent): void {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+    //                                      ^^^^
+    //            Two newlines: one ends the data line, one ends the message.
+  }
+
+  // A logger whose events go straight down the wire. This is what
+  // server/logger.ts buys: the logger does not know it is talking to a
+  // browser, and the patterns in server/orchestration/patterns/ do not
+  // either — they take a Logger and call it.
+  const log = makeLogger((event) =&gt; send({ type: "log", event }));</code></pre>
+      <figcaption><span class="path">server/index.ts</span> · inside the <code>POST /api/chat</code> handler</figcaption>
+    </figure>
+
+    <p>The blank line is what ends a message. Without it the browser buffers forever. The route also ends the response in a <code>finally</code> block, so a failure can never leave the browser waiting on a stream that will not finish.</p>
+
+    <h3>The route does not know what the pattern will do</h3>
+    <p>Once input is validated and the tools and prompt are assembled, the route passes everything to the pattern in one context object. That includes four callbacks that turn pattern events into stream events:</p>
+
+    <figure>
+<pre><code>    const result = await pattern.run({
+      messages,
+      system: prompt.text,
+      tools: apiTools,
+      toolChoice,
+      models,
+      cacheMode,
+      thinkingDisplay,
+      effort,
+      log,
+      emitText: (fragment) =&gt; send({ type: "delta", text: fragment }),
+      emitThinking: (text) =&gt; send({ type: "thinking", text }),
+      onToolStart: (id, name, input, iteration) =&gt;
+        send({ type: "tool_start", id, name, input, iteration }),
+      onToolEnd: (id, name, toolResult, isError, elapsedMs) =&gt;
+        send({ type: "tool_end", id, name, result: toolResult, isError, elapsedMs }),
+    });</code></pre>
+      <figcaption><span class="path">server/index.ts</span> · the hand-off. Adding an eighth pattern touches the pattern file and the registry, and nothing here.</figcaption>
+    </figure>
+
+    <h3>Errors are classified by class, not by message text</h3>
+    <p><code>explainError()</code> turns any failure into a short log summary, a plain user-facing message and a <code>retryable</code> flag. It checks <code>MissingKeyError</code> first, then the SDK classes from most specific to most general: <code>AuthenticationError</code> (401), <code>RateLimitError</code> (429), <code>NotFoundError</code> (404, "usually a misspelled model ID"), <code>BadRequestError</code> (400), <code>InternalServerError</code>, <code>APIConnectionError</code>, and finally <code>APIError</code>. The order matters because every SDK error is also an <code>APIError</code>. Test that first and it swallows the distinction between "wait and retry" and "this will never work". Matching on message text is avoided on purpose: wording changes between SDK versions, but the classes do not.</p>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="wire">
+    <h2>The wire contract and the logger</h2>
+    <p class="sec-note">shared/types.ts · server/logger.ts</p>
+
+    <p><code>shared/types.ts</code> contains only types and compiles to nothing. It defines <code>StreamEvent</code>, a discriminated union of everything the server can send: <code>log</code>, <code>delta</code>, <code>thinking</code>, <code>tool_start</code>, <code>tool_end</code>, <code>extracted</code>, <code>done</code> and <code>error</code>. The browser's handler switches on <code>type</code>, so adding a variant and forgetting to handle it is a compile error rather than a silent no-op.</p>
+
+    <h3>A log row answers four questions</h3>
+    <p>A <code>LogEvent</code> carries a <code>label</code> (the one-line summary), a <code>level</code> (what <em>kind</em> of thing happened), a <code>direction</code> (which way bytes moved, if at all), an <code>actor</code> (whose decision it was), a <code>because</code> phrase, an <code>iteration</code> that groups rows under their request, and an optional <code>detail</code> payload. Direction and actor are separate on purpose, and the type's comment gives the test for choosing a direction:</p>
+
+    <figure>
+<pre><code> * Ask: did data cross a boundary AT THE MOMENT this row was logged?
+ *
+ * If not, the direction is "none", however much the row is ABOUT
+ * something that crossed one.
+ * ...
+ * `actor` is a separate question and does not have to agree. "Claude
+ * requested 2 tool calls" has no direction but its actor is "claude",
+ * because the model made that decision even though our code is what
+ * noticed it. Direction says where bytes moved; actor says whose
+ * decision it was.
+ */
+export type LogDirection = "out" | "in" | "call" | "back" | "none";</code></pre>
+      <figcaption><span class="path">shared/types.ts</span> · excerpt from the <code>LogDirection</code> comment</figcaption>
+    </figure>
+
+    <p>That comment records three rows that once had the wrong direction, all in the same way. Each one made the panel claim more round trips than really happened, which is exactly the confusion the column exists to prevent.</p>
+
+    <p>The <code>warn</code> level also has a reason behind it. Five of the seven patterns do not run client tools, and all tools are on by default. Without a separate warning level, every run of those patterns would open with a red row, and a red row that appears every time soon stops being read.</p>
+
+    <h3>The logger does not know about HTTP</h3>
+    <p><code>makeLogger(emit)</code> returns an object with <code>info</code>, <code>api</code>, <code>tool</code>, <code>warn</code> and <code>error</code>. Each builds a well-formed <code>LogEvent</code>, stamps it with <code>Date.now()</code>, attaches only the fields that are present, and passes it to <code>emit</code>. In a request, <code>emit</code> writes to the SSE connection. In a test it could push onto an array. Patterns take a <code>Logger</code> rather than the HTTP response, so they can run from a script or a test with no server at all.</p>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="tools">
+    <h2>The tool system</h2>
+    <p class="sec-note">server/tools/ · types → definitions → registry</p>
+
+    <p>A tool is a function Claude can ask the server to run. The code is arranged in three layers, and the order is a dependency rule, not just tidiness. <code>types.ts</code> defines what a tool <em>is</em> and imports nothing from the modules that use it. Each file in <code>definitions/</code> imports the types. <code>registry.ts</code> imports the definitions. An earlier version put the interface in the registry. Tool files and the registry then imported each other, which worked with one tool and crashed at startup with two (<code>Cannot access 'currentTime' before initialization</code>).</p>
+
+    <h3>What a tool looks like</h3>
+    <p>Each tool file declares a name, a description written <em>for the model</em>, a Zod input schema, an async <code>run</code> that returns a string, and an example prompt for the Tools tab. The calculator is the canonical one. Notice what it does <em>not</em> accept:</p>
+
+    <figure>
+<pre><code>const inputSchema = z.object({
+  a: z.number().describe("The first number"),
+  b: z.number().describe("The second number"),
+  op: operationSchema.describe("Which arithmetic operation to perform"),
+});
+// ...
+  run: async ({ a, b, op }) =&gt; {
+    let result: number;
+
+    // A switch, not an evaluator. Every branch is code we wrote; nothing
+    // from the model is ever executed.
+    switch (op) {
+      case "add":
+        result = a + b;
+        break;
+// ...
+    // Return the whole calculation, not just the number. "42" tells Claude
+    // nothing about what produced it; if several tools ran in parallel, the
+    // restated sum is what lets the model match result to request.
+    return `${a} ${SYMBOLS[op]} ${b} = ${result}`;</code></pre>
+      <figcaption><span class="path">server/tools/definitions/calculator.ts</span> · excerpt</figcaption>
+    </figure>
+
+    <p>Its header explains the security point. The obvious calculator takes an expression string and calls <code>eval</code>. That is remote code execution reachable through a chat box, because the string comes from the model and the model is influenced by whatever the user typed. The fix is structural: accept two numbers and a named operation, so there is nothing to evaluate. The same idea applies to every tool. If the input is "some code" or "a command", ask whether it could be a small set of named options with typed arguments instead.</p>
+
+    <h3>One schema, two jobs, and a narrow interface</h3>
+    <p>The schema does double duty. It is converted to JSON Schema to tell Claude which arguments are valid, and it validates the arguments Claude sends back. One definition cannot drift from itself. Since MCP support arrived, a tool's schema has been typed as <code>SchemaLike</code> rather than a Zod type. It names exactly the two operations the app performs on a schema:</p>
+
+    <figure>
+<pre><code>export interface SchemaLike {
+  /** The JSON Schema to send to the API. */
+  toJsonSchema(): Record&lt;string, unknown&gt;;
+
+  /** Checks arguments before `run` sees them. Never throws. */
+  safeParse(input: unknown): SchemaParseResult;
+}</code></pre>
+      <figcaption><span class="path">server/tools/types.ts</span> · <code>defineTool()</code> wraps each local tool's Zod schema with <code>fromZod()</code>, so tool files still write plain <code>z.object({...})</code></figcaption>
+    </figure>
+
+    <h3>Turning a tool into an API definition</h3>
+    <p><code>toApiTool()</code> in <code>tools/api-format.ts</code> produces <code>{name, description, input_schema, strict: true}</code>. The function itself is never sent: Claude learns what a tool is called, what it does and what it takes, but never how it works. On the way, the function deep-clones the schema with <code>structuredClone</code>, because it is about to delete keys and an MCP tool returns the same schema object every time. It deletes <code>$schema</code>. It guarantees a <code>required</code> array, and sets <code>additionalProperties: false</code> on every object node. It also strips value constraints that strict mode rejects: <code>minimum</code>, <code>maximum</code>, <code>pattern</code>, <code>format</code>, <code>minLength</code> and others. Those bounds are not lost. The tool runner still enforces them, because it validates against the original schema.</p>
+
+    <p>When no tools are ticked, <code>toApiTools()</code> returns <code>undefined</code> rather than <code>[]</code>, so the <code>tools</code> field is left out altogether. The model is never told any tools exist, which is what "Select none" means.</p>
+
+    <figure class="shot">
+      <a href="img/tools-tab.png"><img src="img/tools-tab.png" width="704" height="774" alt="The Tools tab of the Settings dialog: a checkbox list of tools (calculator, get_current_time, notes, search_docs) each with its model-facing description, a clickable example prompt, and a note on what to watch for."></a>
+      <figcaption>Settings &rarr; Tools. Each tool shows the description the model reads, an example prompt that reliably triggers it, and what to watch for. An unticked tool is not sent at all.</figcaption>
+    </figure>
+
+    <h3>The seven built-in tools</h3>
+    <div class="t-scroll">
+      <table>
+        <thead><tr><th>Tool</th><th>Runs on</th><th>What it demonstrates</th></tr></thead>
+        <tbody>
+          <tr><td class="name">calculator</td><td class="mono">this server</td><td>The basic loop, and verifiable output. No <code>eval</code></td></tr>
+          <tr><td class="name">get_current_time</td><td class="mono">this server</td><td>Something the model genuinely cannot know</td></tr>
+          <tr><td class="name">notes</td><td class="mono">this server</td><td>State across calls, and multi-step loops</td></tr>
+          <tr><td class="name">search_docs</td><td class="mono">this server</td><td>Retrieval over a local corpus (<code>server/data/kb.json</code>)</td></tr>
+          <tr><td class="name">read_file</td><td class="mono">this server</td><td>Sandboxing: resolve the path, <em>then</em> check it is inside</td></tr>
+          <tr><td class="name">flaky_service</td><td class="mono">this server</td><td>Controllable failure: <code>failRate: 1</code> always fails</td></tr>
+          <tr><td class="name">web_search</td><td class="mono">Anthropic</td><td>A server tool: no loop and no client code. The response ends with <code>end_turn</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Server tools are a different animal</h3>
+    <p><code>web_search</code> is declared as <code>{ type: "web_search_20260209", name: "web_search", max_uses: 3 }</code> and that is the whole integration. There is no schema, no function and no result to send back. Anthropic runs the search during the response and keeps generating. The giveaway is <code>stop_reason</code>. A client tool stops the response with <code>tool_use</code> and waits for us. A server tool ends with <code>end_turn</code>, and the response carries <code>server_tool_use</code> and <code>web_search_tool_result</code> blocks as an audit trail. Searches are billed per request, separately from tokens, and the results Claude reads count as input tokens too.</p>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="tool-loop">
+    <h2>The tool loop</h2>
+    <p class="sec-note">server/orchestration/patterns/tool-loop.ts · tool-runner.ts</p>
+
+    <p>The tool loop is the default pattern, and it is what most people mean by "an agent". Send the conversation. If Claude answers, stop. If it asks for tools, run them, append both turns, and send the whole conversation again. Repeat until it stops asking, or until the cap of <code>MAX_TOOL_ITERATIONS = 10</code> is reached. It is a loop rather than "ask, run, ask again" because a question like "search the docs, then calculate from what you found" needs three requests, and nothing limits how many a question might need.</p>
+
+    <figure>
+<pre><code>      const response = await stream.finalMessage();
+      // ...
+      // --- Is Claude finished? ----------------------------------------------
+      //
+      // Anything other than tool_use means the turn is over: end_turn is
+      // a normal answer, max_tokens is a truncated one, refusal means a
+      // safety classifier declined. None of them want anything from us.
+      if (response.stop_reason !== "tool_use") {
+        break;
+      }
+
+      // --- It wants tools ----------------------------------------------------
+
+      const requests = response.content.filter(
+        (block): block is Anthropic.ToolUseBlock =&gt; block.type === "tool_use",
+      );
+      // ...
+      const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
+        requests.map((request) =&gt; runOneTool(request, iteration, log, onToolStart, onToolEnd)),
+      );
+      // ...
+      messages.push({ role: "assistant", content: response.content });
+      messages.push({ role: "user", content: toolResults });</code></pre>
+      <figcaption><span class="path">server/orchestration/patterns/tool-loop.ts</span> · the core of <code>run()</code>, trimmed. The full file keeps the loop at the top and moves every log-row builder below a banner, so the five steps stay readable.</figcaption>
+    </figure>
+
+    <p>Each line in that excerpt is backed by a reason in the source:</p>
+    <ul class="plain">
+      <li><strong>The cap is checked at the top of the loop.</strong> Checking after the call would allow one request more than the cap. Every iteration is billed, so an unbounded loop does not just hang, it keeps spending.</li>
+      <li><strong>Content is filtered by block type</strong>, never read as <code>content[0]</code>. The same response can carry text, thinking and <code>tool_use</code> blocks side by side.</li>
+      <li><strong>Several tools run at once with <code>Promise.all</code>.</strong> Claude asking for several tools in one turn means they are independent, so three 300&nbsp;ms tools finish in 300&nbsp;ms rather than 900&nbsp;ms. <code>Promise.all</code> also keeps results in the same order as the requests.</li>
+      <li><strong>All results go in ONE user message.</strong> Splitting them across several is accepted by the API, but it teaches the model that parallel calls do not work, and it stops making them. The assistant turn must be appended too, or the <code>tool_result</code> blocks would answer nothing.</li>
+      <li><strong><code>tool_choice</code> is sent on the first pass only.</strong> Forcing a tool on a later pass would make Claude call another tool instead of answering with the result it just got.</li>
+      <li><strong>Truncation is flagged.</strong> <code>stop_reason: "max_tokens"</code> comes back as HTTP 200 and looks like a normal reply, so the loop logs it as an error.</li>
+    </ul>
+
+    <figure class="shot">
+      <a href="img/log-response-expanded.png"><img src="img/log-response-expanded.png" width="770" height="1450" alt="The response row for request 1 expanded in the activity log: a JSON tree showing response.stop_reason tool_use, content with one tool_use block named calculator with an id, then a tokens breakdown (input 91, output 93, cache_read 7554) and a caching section explaining that 7554 tokens were served from cache."></a>
+      <figcaption>Request 1's response, expanded. <code>stop_reason: "tool_use"</code>, a single <code>tool_use</code> block with its <code>toolu_…</code> id, and below it the named token breakdown and a plain-words <code>caching.what_happened</code>.</figcaption>
+    </figure>
+
+    <h3>runOneTool never rejects</h3>
+    <p><code>tool-runner.ts</code> runs a single <code>tool_use</code> block, and its key promise is that it <strong>never rejects</strong>. <code>Promise.all</code> gives up on every other promise as soon as one rejects. A single failing tool would then leave its siblings uncollected, and the next request would be missing answers the API requires. So every failure path returns a <code>tool_result</code> with <code>is_error: true</code> instead of throwing:</p>
+
+    <figure>
+<pre><code>  const finish = (
+    result: string,
+    isError: boolean,
+    elapsedMs: number,
+  ): Anthropic.ToolResultBlockParam =&gt; {
+    onToolEnd(request.id, request.name, result, isError, elapsedMs);
+
+    return {
+      type: "tool_result",
+      tool_use_id: request.id,
+      content: result,
+      ...(isError ? { is_error: true as const } : {}),
+    };
+  };</code></pre>
+      <figcaption><span class="path">server/orchestration/tool-runner.ts</span> · every path through <code>runOneTool</code> ends here</figcaption>
+    </figure>
+
+    <p>Three failure paths reach it. An <strong>unknown tool name</strong> gets a <code>warn</code> row and an errored result. <strong>Invalid arguments</strong> are caught by <code>tool.inputSchema.safeParse()</code> before the tool runs. The issues are formatted as <code>field: message</code> so Claude can correct itself and retry. This parse is not redundant with <code>strict: true</code>: strict mode guarantees the <em>shape</em>, not the values, and the numeric bounds were stripped from the schema the API sees. The source lists what got through before the parse existed: <code>limit: 500</code> on <code>search_docs</code>, <code>a: "7"</code> on the calculator (string concatenation gave <code>72</code>), and an unknown notes action that crashed with an internal error. Finally, a <strong>tool that throws</strong> is caught, and its message goes back to Claude, which can respond to the failure instead of the whole request dying.</p>
+
+    <figure class="shot narrow">
+      <a href="img/tool-card.png"><img src="img/tool-card.png" width="768" height="132" alt="A tool card in the transcript: a green DONE badge, the tool name calculator, the arguments a: 847293, b: 61847, op: multiply, and the collapsed result 847293 × 61847 = 52402530171."></a>
+      <figcaption>A tool card, driven by the <code>tool_start</code> and <code>tool_end</code> events. It shows "running" while the tool works and becomes "interrupted" if the stream dies first.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="patterns">
+    <h2>Orchestration patterns</h2>
+    <p class="sec-note">server/orchestration/ · one interface, seven strategies</p>
+
+    <p>A pattern is a strategy for turning a question into an answer using Claude. Every pattern implements one <code>Pattern</code> interface: an id, a name, the teaching text, the roles it uses, example prompts (one good fit and one poor fit), and an async <code>run(context)</code> that returns <code>{text, cost, requests}</code>. Having one interface instead of a switch statement gives three things. The dropdown can swap patterns at runtime. A pattern can run from a script with no server. Adding a pattern touches one file and one array.</p>
+
+    <div class="t-scroll">
+      <table class="wrap-roles stack">
+        <thead><tr><th>Pattern</th><th>Requests</th><th>Roles</th><th>How it works</th></tr></thead>
+        <tbody>
+          <tr><td class="name">Single call</td><td class="mono" data-label="requests">1</td><td class="mono" data-label="roles">producing</td><td>One request, streamed. The baseline. Sends server tools only. If Claude asks for a client tool, it stops and says so</td></tr>
+          <tr><td class="name">Tool loop</td><td class="mono" data-label="requests">2 to 4</td><td class="mono" data-label="roles">producing</td><td>The agentic loop above. The default pattern</td></tr>
+          <tr><td class="name">Prompt chaining</td><td class="mono" data-label="requests">2</td><td class="mono" data-label="roles">deciding, producing</td><td>An outline call, then a writing call. The outline goes into the second call's <em>system prompt</em>, not into <code>messages</code></td></tr>
+          <tr><td class="name">Routing</td><td class="mono" data-label="requests">2</td><td class="mono" data-label="roles">deciding, producing</td><td>A cheap classifier picks a category (debugging, concept, code, cost, or <code>general</code> as the escape hatch), then a specialist prompt answers</td></tr>
+          <tr><td class="name">Parallelisation</td><td class="mono" data-label="requests">4</td><td class="mono" data-label="roles">producing</td><td>Three fixed branches (mechanism, practice, pitfalls) run at once, then a fourth call merges them. Buys latency, not money</td></tr>
+          <tr><td class="name">Orchestrator + workers</td><td class="mono" data-label="requests">3 to 7</td><td class="mono" data-label="roles">deciding, producing</td><td>A planner returns a JSON plan of 1 to 5 subtasks via structured outputs. Workers answer them in parallel, then a synthesis call merges</td></tr>
+          <tr><td class="name">Evaluator + optimiser</td><td class="mono" data-label="requests">2 to 6</td><td class="mono" data-label="roles">producing, judging</td><td>Draft, judge against explicit checkable criteria, regenerate with feedback, up to a limit</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Models by role, not by pattern</h3>
+    <p>Each call a pattern makes belongs to one of three roles. <strong>Deciding</strong> covers short structured output that feeds code: the router's classifier and the planners. It defaults to Haiku. <strong>Producing</strong> is anything the user reads, and defaults to Opus. <strong>Judging</strong> is the evaluator's verdict. It also defaults to Opus, because a judge less capable than the writer passes everything. Patterns read <code>context.models</code> rather than a hard-coded id, so Settings can change them. The dialog shows only the roles the selected pattern uses. The orchestrator's header records the measurement behind the default: across three questions, Haiku produced plans as good as Opus's for about a fiftieth of the cost, in roughly half the time.</p>
+
+    <figure class="shot">
+      <a href="img/settings-dialog.png"><img src="img/settings-dialog.png" width="704" height="774" alt="The Conversation tab of the Settings dialog: an orchestration pattern dropdown set to Tool loop (2 to 4 requests), its description, when to use it, a measured cost note, two clickable example prompts marked good fit, and a Models for this pattern section showing only the Producing role set to Opus 5.5."></a>
+      <figcaption>Settings &rarr; Conversation. The pattern's description, advice and measured cost come straight from the <code>Pattern</code> object, so the explanation lives beside the code it describes. Only the roles this pattern uses are offered.</figcaption>
+    </figure>
+
+    <h3>Structured outputs for anything code has to read</h3>
+    <p>The orchestrator's plan is read by code, so it is requested as JSON that matches a Zod schema, through <code>output_config.format</code>. The API then constrains generation so the reply validates. There is no code fence or apologetic preamble to strip before <code>JSON.parse</code>. The same mechanism powers the evaluator's verdict and the on-demand <em>Extract structured data</em> action (<code>server/extract.ts</code>).</p>
+
+    <figure>
+<pre><code>    const planRequest = {
+      model: deciding,
+      max_tokens: PLAN_MAX_TOKENS,
+      system: PLANNER_SYSTEM,
+      messages,
+      // Thinking is always on; this decides whether its summary comes
+      // back readable. See server/thinking.ts.
+      thinking: { type: "adaptive" as const, display: thinkingDisplay },
+      // The plan schema and the effort level share ONE output_config.
+      // Both go in the same object: a second `output_config:` key
+      // would not merge, it would silently replace the first and the
+      // format would be gone.
+      output_config: { format: zodOutputFormat(PlanSchema), effort },
+    };
+    // ...
+    // .parse() rather than .create(): it applies the schema and
+    // returns the validated object on parsed_output.
+    const planResponse = await getClient().messages.parse(planRequest);</code></pre>
+      <figcaption><span class="path">server/orchestration/patterns/orchestrator.ts</span> · the planning call on the deciding model. The request is built once, then both logged and sent, so the log and the wire cannot disagree.</figcaption>
+    </figure>
+
+    <h3>What patterns without a loop do with tools</h3>
+    <p>Five patterns never handle a <code>tool_use</code> response. That is a deliberate scope decision: a chaining pattern that also loops is just the tool loop with extra steps. <code>no-tools.ts</code> draws the line carefully. <em>Client</em> tools are dropped with a <code>warn</code> row, so the Tools tab count does not mislead. <em>Server</em> tools are still sent, because they need no loop. Without that rule, every pattern except the tool loop would quietly discard <code>web_search</code>.</p>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="mcp">
+    <h2>MCP integration</h2>
+    <p class="sec-note">server/mcp/client.ts · schema.ts · Model Context Protocol</p>
+
+    <p>Settings &rarr; Tools can connect to one MCP server, over Streamable HTTP (for example the companion <em>anthropic-mcp-lab</em> at <code>http://localhost:3100/mcp</code>) or over stdio by launching a command. The server's tools then appear in the Tools tab, badged <code>mcp</code>, and are ticked and sent exactly like local ones.</p>
+
+    <figure class="shot narrow">
+      <a href="img/mcp-section.png"><img src="img/mcp-section.png" width="702" height="158" alt="The Connect an MCP server form: a transport dropdown set to Streamable HTTP, a URL field containing http://localhost:3100/mcp, a Connect button, and the status Not connected."></a>
+      <figcaption>The connection form at the foot of the Tools tab.</figcaption>
+    </figure>
+
+    <p>The design point to explain is this: <strong>the tool loop was not changed to support MCP.</strong> From the model's point of view there is no second kind of tool. One <code>tools</code> array goes out, one <code>tool_use</code> block comes back, and one <code>tool_result</code> goes into the next request. So <code>client.ts</code> adapts each remote tool into the same <code>AnyLabTool</code> shape and puts it in the same list. Its <code>run</code> forwards the call:</p>
+
+    <figure>
+<pre><code>      async run(input: unknown): Promise&lt;string&gt; {
+        // Checked at call time rather than captured at adaptation
+        // time. A tool whose connection has been closed should say so
+        // clearly; a captured `client` would throw something less
+        // helpful from inside the SDK.
+        if (!client) {
+          throw new Error(
+            "The MCP server is no longer connected. Reconnect it in " +
+              "Settings, or untick this tool.",
+          );
+        }
+
+        const result = await client.callTool({
+          name: tool.name,
+          arguments: (input ?? {}) as Record&lt;string, unknown&gt;,
+        });
+        // ...
+        // The remote server reports failure in-band, with isError on
+        // a normal result rather than a protocol error. Rethrown here
+        // so the tool loop treats it exactly like a local tool
+        // throwing — which is what puts is_error on the tool_result
+        // and lets Claude recover.
+        if (result.isError) {
+          throw new Error(text || "The MCP tool reported an error.");
+        }
+
+        return text;
+      },</code></pre>
+      <figcaption><span class="path">server/mcp/client.ts</span> · inside <code>adaptTools()</code>. Non-text content blocks are named (<code>[image content, not shown]</code>) rather than silently dropped.</figcaption>
+    </figure>
+
+    <p>A few details make this work:</p>
+    <ul class="plain">
+      <li><strong>The schema is carried verbatim.</strong> There is deliberately no JSON-Schema-to-Zod converter. JSON Schema is a larger language than hand-written Zod (<code>oneOf</code>, <code>$ref</code>, recursion), and a lossy converter fails silently, as a tool that rejects valid arguments. <code>schemaFromJson()</code> returns a <code>SchemaLike</code> whose <code>toJsonSchema()</code> gives back the server's schema. Its <code>safeParse()</code> validates with the MCP SDK's <code>fromJsonSchema</code>, used purely as a validator.</li>
+      <li><strong>Look tools up with <code>findTool()</code>, not the static Map.</strong> <code>TOOLS_BY_NAME</code> is built at import time and cannot see a tool that arrives later over a connection. <code>getActiveTools()</code> and <code>findTool()</code> merge local and borrowed tools at call time. A comment in the chat route records the bug this fixed. The route once filtered the requested tools against the local registry only, so borrowed tools showed in the Tools tab but were never sent, and Claude never asked for them.</li>
+      <li><strong>Name collisions drop the remote tool.</strong> The clash is reported in Settings and as a <code>warn</code> row. It cannot be a startup crash like a local duplicate, because the remote tools are not ours to rename.</li>
+      <li><strong>A deliberate import cycle.</strong> <code>tools/registry.ts</code> and <code>mcp/client.ts</code> import each other. The cycle resolves only because neither calls the other while modules are loading. A top-level call on either side would break it.</li>
+    </ul>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="caching">
+    <h2>Caching, thinking and effort</h2>
+    <p class="sec-note">server/caching.ts · thinking.ts · effort.ts</p>
+
+    <h3>Prompt caching is a prefix match</h3>
+    <p>The API renders every request in a fixed order: <code>tools → system → messages</code>. A cache entry covers everything up to a <code>cache_control</code> breakpoint, and any byte that changes before the breakpoint invalidates it. So the question is not "what is big" but "what is identical every time, and is it at the front". In this app the tool definitions are identical while the Tools tab is unchanged and are routinely most of the request. The system prompt is identical within a conversation. Earlier turns of the conversation are stable, but the newest one is not.</p>
+
+    <figure>
+<pre><code>export function withCachedTools(
+  tools: Anthropic.ToolUnion[] | undefined,
+  mode: CacheMode = "full",
+): Anthropic.ToolUnion[] | undefined {
+  if (mode === "off") return tools;
+  if (!tools || tools.length === 0) return tools;
+
+  return tools.map((tool, index) =&gt;
+    index === tools.length - 1
+      ? ({ ...tool, cache_control: EPHEMERAL } as Anthropic.ToolUnion)
+      : tool,
+  );
+}</code></pre>
+      <figcaption><span class="path">server/caching.ts</span> · one breakpoint on the <em>last</em> tool caches the whole array. It returns a new array, so the logged definitions are not changed after the fact.</figcaption>
+    </figure>
+
+    <p>There are three modes. <code>off</code> sends no markers and is the baseline. <code>prefix</code> marks the last tool and the system prompt (which becomes a one-element text-block array, because a plain string has nowhere to carry <code>cache_control</code>). <code>full</code>, the default, also marks the last <em>settled</em> message, at <code>messages.length - 2</code>. That leaves the new question outside the cached prefix, since it differs every turn and would never match. Two traps are explained out loud in the log. First, a prefix below the minimum (1,024 tokens on Opus and Sonnet, 2,048 on Haiku) is <em>silently</em> not cached, so the app warns when its estimate falls short. Second, Single call strips client tools, so it rarely has a prefix long enough to cache.</p>
+
+    <figure class="shot">
+      <a href="img/chat-followup.png"><img src="img/chat-followup.png" width="1400" height="900" alt="A follow-up turn: the user asked 'Now divide that result by 7.', two calculator tool cards appear, and the answer is 7,486,075,738.714286. The activity log shows iteration 3 with a response row reading 7990 in / 50 out, 98% cached, and a row saying Caching saved $0.0872 this turn, 98% of input from cache."></a>
+      <figcaption>A follow-up in the same conversation. The tools, system prompt and earlier turns match the cache, so the response row reads <code>98% cached</code>. The summary row adds up what caching saved across every request in the turn (<code>CacheTally</code>).</figcaption>
+    </figure>
+
+    <h3>Thinking: you control visibility, not whether it happens</h3>
+    <p>On the models this app offers, thinking is always on and always billed. Every request carries <code>thinking: { type: "adaptive", display: thinkingDisplay }</code>. <code>display</code> is either <code>"omitted"</code>, where the blocks arrive with empty text, or <code>"summarized"</code>, where you get a readable summary of reasoning that already happened. The setting does not make the model think more or cost more. The field is written out in full even when it matches the API default, so that it appears in the logged request body. Two shapes that older tutorials show (<code>type: "enabled"</code> with <code>budget_tokens</code>, and <code>type: "disabled"</code> on Opus 5.5) are rejected by these models.</p>
+
+    <h3>Effort replaced budget_tokens</h3>
+    <p><code>output_config: { effort }</code> takes one of <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code> and <code>max</code>. Effort is a dial: the model decides how many tokens a level deserves for the question in front of it, instead of you guessing a token budget. The app always sends a level explicitly, because the default differs by model (medium on Opus 5.5 and Haiku 5.5, high on Sonnet 5.5), and an unpinned comparison would quietly compare effort levels too. Effort shares <code>output_config</code> with <code>format</code>. A request literal must put both in <em>one</em> object, because a second <code>output_config</code> key replaces the first rather than merging with it.</p>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="usage">
+    <h2>Usage and cost accounting</h2>
+    <p class="sec-note">server/usage.ts · the cost figures in the UI</p>
+
+    <p>Every response carries a <code>usage</code> object. <code>summariseUsage()</code> names its fields (fresh input, output, cache read, cache write, total input) and prices them from a hard-coded table. Opus 5.5 is $4 input and $20 output per million tokens, Sonnet 5.5 is $2 and $10, and Haiku 5.5 is $0.10 and $0.50. Cache reads are discounted, and cache writes are charged at 1.25× input. The rates are illustrative and will go out of date. They exist so that you notice one pattern costing four times another, not for billing. An unknown model falls back to Opus rates rather than showing $0.00, because "$0.00" reads as "free", not "not priced here".</p>
+
+    <figure>
+<pre><code>  const cost =
+    (input / 1_000_000) * rates.input +
+    (output / 1_000_000) * rates.output +
+    (cacheRead / 1_000_000) * rates.cacheRead +
+    // Writing to the cache costs 25% more than fresh input.
+    (cacheWrite / 1_000_000) * rates.input * 1.25;</code></pre>
+      <figcaption><span class="path">server/usage.ts</span> · inside <code>summariseUsage()</code></figcaption>
+    </figure>
+
+    <p>Each pattern adds up the cost of every request it makes, and the route reports the total on the <code>done</code> event. That total is the figure in each reply's footer. <code>CacheTally</code> keeps a running total of what was billed for input against what the same tokens would have cost uncached. That gives one honest "caching saved $X this turn" figure instead of per-request hit rates that bounce around. <code>formatCost()</code> shows four decimals below a dollar, because every figure here falls between a tenth of a cent and a few cents, and rounding to "$0.02" would hide the difference being studied.</p>
+
+    <div class="note">
+      <span class="note-label">A quirk visible in the screenshots</span>
+      <p>The browser adds a turn to the session total whenever a log row's detail carries a numeric <code>total_cost</code> (<code>public/log.ts</code>). On a tool-loop turn with more than one request, two rows carry one: the loop's own "Finished after N iteration(s)" row and the route's "Tool loop finished" row. So the session figure in the header counts that turn twice. In the first screenshot the reply footer says $0.0427, while the header says $0.0854. The per-reply footer and the per-request rows are the reliable numbers.</p>
+    </div>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="security">
+    <h2>The API key and security</h2>
+    <p class="sec-note">server/api-key.ts · anthropic.ts · security invariants</p>
+
+    <h3>Where the key lives</h3>
+    <p>The key is a non-exported module variable in <code>server/api-key.ts</code>, held in memory for the life of the process. It is set from the Settings dialog, which posts it once to <code>POST /api/key</code>. An optional git-ignored <code>.env</code> can seed it at startup. The key routes are deliberately asymmetric. A key goes in, and what comes out is a yes/no, a masked hint showing the <code>sk-ant-</code> prefix and the last four characters, and the source. There is no route that returns the key. Returning it would put the secret back into a response body, the network tab and anything that caches responses.</p>
+
+    <figure class="shot narrow">
+      <a href="img/api-key-setting.png"><img src="img/api-key-setting.png" width="702" height="230" alt="The Anthropic API key setting: an empty password-style input with placeholder sk-ant-..., a Save button and a Clear link, a status line 'Key loaded from .env (sk-ant-…7gAA). Saving one here replaces it for this session.', and an explanation that this is the only setting with a Save button."></a>
+      <figcaption>The only setting with a Save button. Every other setting saves itself to browser storage. The key never does.</figcaption>
+    </figure>
+
+    <p><code>setKey()</code> checks the shape first: it must start with <code>sk-ant-</code>, be long enough, and contain no whitespace. An obviously wrong paste is answered on the spot with a specific message, rather than later as a 401. Clearing the key falls back to the <code>.env</code> value if there is one. The trade-off is stated plainly: a key typed into Settings is forgotten on restart, and that is cheaper than a secret written somewhere backups and sync tools might pick it up.</p>
+
+    <h3>Building the SDK client at the point of use</h3>
+    <figure>
+<pre><code>export function getClient(): Anthropic {
+  const key = getKey();
+
+  if (key === null) throw new MissingKeyError();
+
+  // Reuse the existing client whenever the key has not changed. This is the
+  // normal path: one client for the whole session.
+  if (cached !== null &amp;&amp; cachedKey === key) return cached;
+
+  cached = new Anthropic({
+    baseURL: "https://api.anthropic.com",
+    apiKey: key,
+  });
+  cachedKey = key;
+
+  return cached;
+}</code></pre>
+      <figcaption><span class="path">server/anthropic.ts</span> · callers write <code>getClient().messages.stream(...)</code> and never store the result</figcaption>
+    </figure>
+
+    <p>A module-level <code>const client = new Anthropic()</code> would capture whatever key existed at import time, and on a fresh clone that is none at all. Caching <em>on the key</em> keeps one connection pool for the session and rebuilds only when the key changes. <code>baseURL</code> and <code>apiKey</code> are passed explicitly so that an <code>ANTHROPIC_BASE_URL</code> or <code>ANTHROPIC_AUTH_TOKEN</code> in the shell (common with corporate gateways) cannot silently reroute the call. A 401 from a gateway looks exactly like a bad key.</p>
+
+    <h3>The invariants</h3>
+    <ul class="plain">
+      <li><strong>Model output never becomes HTML.</strong> Replies are rendered with <code>createElement</code> and <code>textContent</code>, including inside the hand-written Markdown renderer. Model output is shaped by user input and tool results, and a general Markdown library would allow raw HTML such as <code>&lt;img src=x onerror=…&gt;</code>.</li>
+      <li><strong><code>read_file</code> resolves, then checks.</strong> It rejects absolute paths outright. It then joins and <code>resolve()</code>s the requested path into a canonical absolute path, and uses <code>path.relative()</code> to confirm the result is still inside <code>server/data</code>. Resolving first collapses every <code>../</code> trick before the check runs. Inspecting the raw string is an arms race, and comparing with <code>startsWith</code> would wrongly accept <code>/app/data-backup</code>.</li>
+      <li><strong>The client cannot reach server globals.</strong> <code>tsconfig.client.json</code> sets <code>"types": []</code>, so <code>process</code> and friends do not exist in browser code, even by accident.</li>
+      <li><strong>Tool arguments are treated as hostile input.</strong> The question is never "would Claude do this", but "what happens if this value is hostile". That is why the calculator has no <code>eval</code>, arguments are validated before <code>run</code>, and paths are sandboxed.</li>
+      <li><strong>No authentication, single user.</strong> Every route is unauthenticated, and the MCP stdio option can launch a program. The app is meant for one person on their own machine, and the docs say never to expose it to a network: anyone who can reach the port can set or use the key.</li>
+    </ul>
+
+    <div class="note">
+      <span class="note-label">Worth knowing when you explain the network boundary</span>
+      <p>The README and code comments describe the app as binding to localhost. The code itself calls <code>app.listen(PORT, …)</code> without a host argument, and Node then listens on all interfaces (<code>0.0.0.0:3000</code> while running for these screenshots). In practice, what keeps it private is the machine's firewall and the instruction not to run it on a shared network.</p>
+    </div>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="frontend">
+    <h2>The frontend</h2>
+    <p class="sec-note">public/ · vanilla TypeScript · no framework, no bundler</p>
+
+    <p>The browser half is hand-written TypeScript compiled to ES modules with <code>tsc -p tsconfig.client.json</code>. There is no framework, because the page <em>is</em> the teaching surface, and a framework would put its own abstraction between the reader and the JSON on the wire. The modules split along one rule: the import graph runs one way. <code>app.ts</code> imports from <code>log.ts</code>, <code>settings.ts</code> and <code>transcript.ts</code>. <code>settings.ts</code> imports <code>appendLog</code> from <code>log.ts</code>. Nothing imports <code>app.ts</code>.</p>
+
+    <div class="t-scroll">
+      <table class="wrap-mono">
+        <thead><tr><th>Module</th><th>Owns</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">app.ts</td><td>Sending, reading the event stream, the A/B re-run comparison, structured extraction, presets, startup wiring</td></tr>
+          <tr><td class="mono">log.ts</td><td>The activity panel: rows, grouping by message and request, level filters, the running cost</td></tr>
+          <tr><td class="mono">settings.ts</td><td>The controls in the Settings dialog, populated from the <code>GET /api/…</code> option routes and remembered in <code>localStorage</code></td></tr>
+          <tr><td class="mono">transcript.ts</td><td>Tool cards between messages</td></tr>
+          <tr><td class="mono">markdown.ts</td><td>A small renderer that builds DOM nodes and never produces HTML from input</td></tr>
+          <tr><td class="mono">json-tree.ts</td><td>The collapsible JSON viewer inside log rows</td></tr>
+          <tr><td class="mono">state.ts</td><td>The few values several modules write, kept on one object, because ES module exports cannot be reassigned by importers</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Reading the stream correctly</h3>
+    <p>The browser uses <code>fetch</code>, not <code>EventSource</code>, because it needs to <em>POST</em> a body. It reads the response stream itself. The trap is that a network chunk is not a message: one chunk can hold three messages, or half of one. So it keeps a buffer and takes only complete messages off the front:</p>
+
+    <figure>
+<pre><code>  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += value;
+
+    // Messages are separated by a blank line. Split on it, and keep the
+    // final piece in the buffer — it is either empty (the last message ended
+    // cleanly) or a partial message still arriving.
+    const messages = buffer.split("\n\n");
+    buffer = messages.pop() ?? "";</code></pre>
+      <figcaption><span class="path">public/app.ts</span> · <code>readEventStream()</code>, trimmed. Each complete message's <code>data:</code> lines are joined and parsed as a <code>StreamEvent</code>. A malformed one is skipped, not fatal.</figcaption>
+    </figure>
+
+    <h3>Rendering a reply</h3>
+    <p><code>handleStreamEvent()</code> is an exhaustive switch over <code>StreamEvent</code>. While <code>delta</code> events arrive, the reply is shown as raw text through <code>textContent</code>. Re-parsing Markdown on every fragment would get slower as the reply grew, and half-arrived syntax would flicker (<code>**bold</code> is not bold until its closing stars land). On <code>done</code>, the server's complete text replaces it, rendered as Markdown, and a footer adds the models, cost, time and request count. That same complete text is what goes into the history. It is never rebuilt from deltas, because a dropped fragment would otherwise leave a subtly wrong transcript that every later turn would argue with.</p>
+
+    <h3>The browser owns the conversation</h3>
+    <p>The server is stateless between turns. The browser keeps <code>state.conversation</code> and sends all of it every time. That has consequences the code handles. If a request fails, the user turn that was pushed before sending is popped again. Otherwise the next request would carry two user turns in a row, which the API rejects, and one failure would poison every request after it. Empty replies are never stored, because the API rejects empty content.</p>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="terms">
+    <h2>Key terms</h2>
+    <p class="sec-note">A short glossary</p>
+
+    <dl class="glossary">
+      <div><dt>Messages API</dt><dd>Anthropic's endpoint for a model turn. It takes a model, a <code>max_tokens</code> cap, an optional top-level <code>system</code>, optional <code>tools</code>, and the <code>messages</code> array. It is stateless: each call carries the whole conversation.</dd></div>
+      <div><dt>stop_reason</dt><dd>Why a response ended. <code>end_turn</code> is a normal answer. <code>tool_use</code> means Claude wants a client tool run. <code>max_tokens</code> means the reply was truncated. <code>refusal</code> means it was declined.</dd></div>
+      <div><dt>tool_use / tool_result</dt><dd>The pair of content blocks that make up a client tool call. The assistant's <code>tool_use</code> has an <code>id</code>, and the next user turn answers it with a <code>tool_result</code> quoting that <code>tool_use_id</code>, with <code>is_error: true</code> on failure.</dd></div>
+      <div><dt>Client tool</dt><dd>A tool this app executes: the six in <code>tools/definitions/</code>, plus anything borrowed over MCP.</dd></div>
+      <div><dt>Server tool</dt><dd>A tool Anthropic executes inside the response (<code>web_search</code>). No loop and no <code>tool_result</code>.</dd></div>
+      <div><dt>strict: true</dt><dd>Asks the API to guarantee tool arguments match the schema's <em>shape</em>. It does not check value ranges, which is why the tool runner still validates.</dd></div>
+      <div><dt>Tool loop</dt><dd>Call, run requested tools, append, call again, until <code>stop_reason</code> is no longer <code>tool_use</code>, with a cap of 10 iterations.</dd></div>
+      <div><dt>Pattern</dt><dd>One of seven interchangeable strategies for answering a question, behind a single <code>Pattern</code> interface.</dd></div>
+      <div><dt>Role</dt><dd>Deciding, producing or judging. The kind of job a call does, and therefore which model it uses.</dd></div>
+      <div><dt>SSE</dt><dd>Server-Sent Events: one-way server-to-browser messages over a normal HTTP response, each written as <code>data: …</code> plus a blank line.</dd></div>
+      <div><dt>StreamEvent</dt><dd>The discriminated union of everything the server sends on that stream, defined in <code>shared/types.ts</code>.</dd></div>
+      <div><dt>Prompt caching</dt><dd>Reusing the processed form of an identical request prefix, marked with <code>cache_control</code> breakpoints. Reads are much cheaper than fresh input, and writes cost 25% more.</dd></div>
+      <div><dt>Adaptive thinking</dt><dd><code>thinking: {type: "adaptive"}</code>. The model decides how much to reason. <code>display</code> only controls whether a summary is returned.</dd></div>
+      <div><dt>Effort</dt><dd><code>output_config.effort</code>: how hard the model works before answering, from <code>low</code> to <code>max</code>.</dd></div>
+      <div><dt>Structured outputs</dt><dd><code>output_config.format</code> with a schema. Generation is constrained so the reply is valid JSON matching it.</dd></div>
+      <div><dt>MCP</dt><dd>Model Context Protocol: a standard way for a client to list and call tools hosted by a separate server.</dd></div>
+      <div><dt>SchemaLike</dt><dd>This app's two-method schema interface (<code>toJsonSchema</code>, <code>safeParse</code>). It lets Zod-defined and MCP-provided tools share one list.</dd></div>
+    </dl>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="questions">
+    <h2>Questions people ask</h2>
+    <p class="sec-note">Short answers, with the reasoning</p>
+
+    <div class="qa">
+      <details>
+        <summary>Why not call Anthropic directly from the browser?</summary>
+        <p>Because the key would then be in frontend code, readable by anyone with DevTools. The server exists to hold it. The browser can set the key, but no route returns it.</p>
+      </details>
+      <details>
+        <summary>How does Claude "know" which tools it has?</summary>
+        <p>It is told, in full, in every request. There is no registration step, because the API keeps no state. The log row "7 of 7 tool(s) sent (4506 chars of definitions)" shows the exact definitions and their size. That size is also why the tools array is the best thing to cache.</p>
+      </details>
+      <details>
+        <summary>Why do input tokens grow during a tool loop?</summary>
+        <p>Each iteration resends the whole conversation, which grows by two messages (the assistant's <code>tool_use</code> turn and the user's <code>tool_result</code> turn) every round. Caching the stable prefix is what keeps that affordable.</p>
+      </details>
+      <details>
+        <summary>What happens if a tool fails or Claude sends bad arguments?</summary>
+        <p>Nothing crashes. <code>runOneTool</code> turns every failure (unknown tool, failed validation, a thrown error) into a <code>tool_result</code> with <code>is_error: true</code> and a message written for the model, and Claude usually corrects itself and retries. Try <code>flaky_service</code> with <code>failRate: 1</code> to watch it happen.</p>
+      </details>
+      <details>
+        <summary>Why do the five non-loop patterns ignore client tools?</summary>
+        <p>Running a client tool needs a second request to carry the result back, which is a loop. Keeping the loop in one pattern makes the cost of tool use visible. Those patterns still send server tools, because Anthropic runs them without a loop.</p>
+      </details>
+      <details>
+        <summary>What did adding MCP require?</summary>
+        <p>An adapter that wraps each remote tool as a regular tool, a schema interface wide enough to hold the server's JSON Schema verbatim, and tool lookup at call time. The tool loop itself did not change, and that is the lesson.</p>
+      </details>
+      <details>
+        <summary>Is the cost figure accurate?</summary>
+        <p>It is an estimate from hard-coded published rates in <code>server/usage.ts</code>. It is good for comparing patterns, models and settings against each other, not for billing. See the note in the usage section about the session total on multi-request turns.</p>
+      </details>
+    </div>
+  </section>
+
+  <footer>
+    <span>anthropic-chat-lab v1.0.0</span>
+    <span>Screenshots taken from the running app</span>
+    <span><a href="../index.html">&larr; Back to overview</a></span>
+  </footer>
+
+</div>
+</body>
+</html>
